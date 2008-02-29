@@ -1,0 +1,7 @@
+include COPYING
+include MANIFEST 
+include MANIFEST.in 
+include setup.py
+include yabsc
+global-exclude CVS
+global-exclude .svn

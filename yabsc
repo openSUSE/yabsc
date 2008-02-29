@@ -1,0 +1,653 @@
+#!/usr/bin/env python
+#
+# yabsc - Yet Another Build Service Client
+#
+
+# Copyright (C) 2008 James Oakley <jfunk@opensuse.org>
+
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+
+
+import sys
+import urlparse
+import xml.etree.cElementTree as ElementTree
+from PyQt4 import QtGui, QtCore
+from osc import conf, core
+
+#
+# Temporary asynchronous versions of osc api calls
+#
+
+class DeferredCall:
+    """
+    DeferredCall()
+    
+    Represents an in-progress call to a remote API. This allows a caller to defer handling of the
+    result until after it has arrived
+    """
+    def __init__():
+        self.result = None
+    
+#def meta_get_project_list(apiurl, defer=False):
+#    def result_func(result):
+#        root = ET.parse(result).getroot()
+#        return sorted([ node.get('name') for node in root ])
+#
+#    u = core.makeurl(apiurl, ['source'])
+#    if defer:
+#        return DeferredCall()
+#    else:
+#        f = core.http_GET(u)
+#        return result_func(f)
+
+class BuildService:
+    "Interface to Build Service API"
+    def __init__(self, apiurl=None):
+        conf.get_config()
+        if apiurl:
+            self.apiurl = apiurl
+        else:
+            self.apiurl = conf.config['apiurl']
+    
+    def getAPIServerList(self):
+        """getAPIServerList() -> list
+        
+        Get list of API servers configured in .oscrc
+        """
+        apiservers = []
+        for host in conf.config['auth_dict'].keys():
+            apiurl = "%s://%s" % (conf.config['scheme'], host)
+        return apiservers
+    
+    def getUserName(self):
+        """getUserName() -> str
+        
+        Get the user name associated with the current API server
+        """
+        hostname = urlparse.urlparse(self.apiurl)[1]
+        return conf.config['auth_dict'][hostname]['user']
+    
+    def getProjectList(self):
+        """getProjectList() -> list
+        
+        Get list of projects
+        """
+        return [project for project in core.meta_get_project_list(self.apiurl) if project != 'deleted']
+    
+    def getWatchedProjectList(self):
+        """getWatchedProjectList() -> list
+        
+        Get list of watched projects
+        """
+        username = self.getUserName()
+        tree = ElementTree.fromstring(''.join(core.get_user_meta(self.apiurl, username)))
+        projects = []
+        watchlist = tree.find('watchlist')
+        if watchlist:
+            for project in watchlist.findall('project'):
+                projects.append(project.get('name'))
+        homeproject = 'home:%s' % username
+        if not homeproject in projects and homeproject in self.getProjectList():
+            projects.append(homeproject)
+        return projects
+
+    def getResults(self, project, target=None):
+        """getResults(project, target=None) -> (dict, list)
+        
+        Get results of a project. Returns (results, targets)
+        
+        results is a dict, with package names as the keys, and lists of result codes as the values
+        
+        targets is a list of targets, corresponding to the result code lists
+        """
+        results = {}
+        targets = []
+        if target:
+            (repository, arch) = target.split('/')
+        tree = ElementTree.fromstring(''.join(core.show_prj_results_meta(self.apiurl, project)))
+        for result in tree.findall('result'):
+            if not target or (result.get('repository') == repository and result.get('arch') == arch):
+                targets.append('/'.join((result.get('repository'), result.get('arch'))))
+                for status in result.findall('status'):
+                    package = status.get('package')
+                    code = status.get('code')
+                    if not package in results:
+                        results[package] = []
+                    results[package].append(code)
+        return (results, targets)
+
+    def getTargets(self, project):
+        """
+        getTargets(project) -> list
+        
+        Get a list of targets for a project
+        """
+        targets = []
+        tree = ElementTree.fromstring(''.join(core.show_project_meta(self.apiurl, project)))
+        for repo in tree.findall('repository'):
+            for arch in repo.findall('arch'):
+                targets.append('%s/%s' % (repo.get('name'), arch.text))
+        return targets
+
+    def getPackageStatus(self, project, package):
+        """
+        getPackageStatus(project, package) -> dict
+        
+        Returns the status of a package as a dict with targets as the keys and status codes as the
+        values
+        """
+        status = {}
+        for result in core.get_results(self.apiurl, project, package):
+            spl = result.split()
+            target = '/'.join(spl[:2])
+            code = ' '.join(spl[2:])
+            if code.startswith('failed'):
+                code = 'failed'
+            status[target] = code
+        return status
+    
+    def getBinaryList(self, project, target, package):
+        """
+        getBinaryList(project, target, package) -> list
+        
+        Returns a list of binaries for a particular target and package
+        """
+        (repo, arch) = target.split('/')
+        core.get_binarylist(self.apiurl, project, repo, arch, package)
+        
+    def getBuildLog(self, project, target, package, offset=0):
+        """
+        getBuildLog(project, target, package, offset=0) -> str
+        
+        Returns the build log of a package for a particular target.
+        
+        If offset is greater than 0, return only text after that offset. This allows live streaming
+        """
+        (repo, arch) = target.split('/')
+        return core.get_buildlog(self.apiurl, project, package, repo, arch, offset)
+
+#
+# Data models
+#
+
+class AllResultModel(QtCore.QAbstractItemModel):
+    """AllResultModel()
+    
+    Model for package results
+    """
+    def __init__(self):
+        QtCore.QAbstractItemModel.__init__(self)
+        self.results = []
+        self.targets = []
+        self.packages = []
+    
+    def setResults(self, results, targets):
+        """
+        setResults(results, targets)
+        
+        Set the results dict and targets list of the model, as returned from
+        BuildService.getResults()
+        """
+        self.results = results
+        self.targets = targets
+        self.packages = sorted(results.keys())
+        self.reset()
+    
+    def _data(self, row, column):
+        """
+        _data(row, column) -> str
+        
+        Internal method for getting model data. The 0th column is the package name, and subsequent
+        columns are result codes
+        """
+        package = self.packages[row]
+        if column == 0:
+            return package
+        else:
+            return self.results[package][column-1]
+    
+    def packageFromRow(self, row):
+        """
+        packageFromRow(row) -> str
+        
+        Get the package name associated with a row
+        """
+        return self._data(row, 0)
+
+    def data(self, index, role):
+        """
+        data(index, role) -> Qvariant
+        
+        Returns the QVariant model data located at QModelIndex index
+        
+        This is normally only called within Qt
+        """
+        if index.isValid() and role == QtCore.Qt.DisplayRole:
+            return QtCore.QVariant(self._data(index.row(), index.column()))
+        else:
+            return QtCore.QVariant()
+    
+    def headerData(self, section, orientation, role):
+        """
+        headerData(section, orientation, role) -> QVariant
+        
+        Returns header for section (column) with orientation (Qt.Horizontal or Qt.Vertical)
+        
+        This is normally only called within Qt
+        """
+        if role == QtCore.Qt.DisplayRole:
+            if section == 0:
+                return QtCore.QVariant("Package")
+            else:
+                return QtCore.QVariant(self.targets[section-1])
+        else:
+            return QtCore.QVariant()
+
+    def index(self, row, column, parent=None):
+        """
+        index(row, column, parent) -> QModelIndex
+        
+        Returns a QModelIndex object representing row and column
+        """
+        return self.createIndex(row, column, id(self._data(row, column)))
+        
+    def parent(self, index):
+        """
+        parent(index) -> QModelIndex
+        
+        Return the parent index of an index (for trees)
+        """
+        return QtCore.QModelIndex()
+
+    def rowCount(self, parent=None):
+        """
+        rowCount() -> int
+        
+        Returns the number of rows of data currently in the model
+        """
+        return len(self.packages)
+        
+    def columnCount(self, parent=None):
+        """
+        columnCount() -> int
+        
+        Returns the number of columns of data currently in the model
+        """
+        return len(self.targets) + 1
+
+class FilteredResultModel(AllResultModel):
+    """
+    FilteredResultModel(status)
+    
+    Model for package results that match a particular status
+    """
+    def __init__(self, status):
+        AllResultModel.__init__(self)
+        self.status = status
+
+    def setResults(self, results, targets):
+        """
+        setResults(results, targets)
+        
+        Set the results dict and targets list of the model, as returned from
+        BuildService.getResults()
+        """
+        self.results = results
+        self.targets = targets
+        self.packages = sorted(filter(lambda p: self.status in self.results[p], results.keys()))
+        self.reset()
+    
+    def getMatchingPackageTargets(self, package):
+        """
+        getMatchingPackageTargets(package) -> list
+        
+        Get a list of targets of a package whose code matches the model's status filter
+        """
+        targets = []
+        for (i, target) in enumerate(self.targets):
+            if self.results[package][i] == self.status:
+                targets.append(target)
+        return targets
+
+    def _data(self, row, column):
+        """
+        _data(row, column) -> str
+        
+        Internal method for getting model data. The 0th column is the package name, and the 1st
+        column is a comma-separated list of package targets whose code matches the model's status
+        filter
+        """
+        package = self.packages[row]
+        if column == 0:
+            return package
+        else:
+            return ', '.join(self.getMatchingPackageTargets(package))
+
+    def headerData(self, section, orientation, role):
+        """
+        headerData(section, orientation, role) -> QVariant
+        
+        Returns header for section (column) with orientation (Qt.Horizontal or Qt.Vertical)
+        
+        This is normally only called within Qt
+        """
+        if role == QtCore.Qt.DisplayRole:
+            if section == 0:
+                return QtCore.QVariant("Package")
+            else:
+                return QtCore.QVariant("Targets")
+        else:
+            return QtCore.QVariant()
+
+    def columnCount(self, parent=None):
+        """
+        columnCount() -> int
+        
+        Returns the number of columns of data in this model (always 2 here)
+        """
+        return 2
+
+class BSWidget(QtGui.QWidget):
+    """
+    BSWidget(bs)
+    
+    Build Service status viewer widget. bs is a BuildService object
+    """
+    def __init__(self, bs):
+        QtGui.QWidget.__init__(self)
+        
+        # BuildService object
+        self.bs = bs
+        
+        # Convenience attributes
+        self.currentproject = ''
+        
+        # Project list selector
+        self.projectlistselector = QtGui.QComboBox()
+        self.projectlistselector.addItem("Watched Projects")
+        self.projectlistselector.addItem("All Projects")
+        QtCore.QObject.connect(self.projectlistselector, QtCore.SIGNAL("currentIndexChanged(const QString&)"), self.refreshProjectList)
+
+        # The project list
+        self.projecttreeview = QtGui.QTreeView()
+        self.projecttreeview.setRootIsDecorated(False)
+        self.projectlistmodel = QtGui.QStandardItemModel(0, 1, self)
+        self.refreshProjectList()
+        self.projecttreeview.setModel(self.projectlistmodel)
+        QtCore.QObject.connect(self.projecttreeview, QtCore.SIGNAL("clicked(const QModelIndex&)"), self.projectSelected)
+        
+        # Project information
+        #
+        self.results = Set()
+
+        # Tabs
+        self.projecttab = QtGui.QTabWidget()
+
+        self.tabs = []
+        
+        for tabname in ('All', 'Failed', 'Building', 'Blocked', 'Expansion Error', 'Broken', 'Disabled'):
+            tab = {'name': tabname}
+            tab['view'] = QtGui.QTreeView()
+            tab['view'].setRootIsDecorated(False)
+            if tabname == 'All':
+                tab['model'] = AllResultModel()
+            else:
+                tab['model'] = FilteredResultModel(tabname.lower())
+            tab['view'].setModel(tab['model'])
+            self.projecttab.addTab(tab['view'], tabname)
+            QtCore.QObject.connect(tab['view'], QtCore.SIGNAL("clicked(const QModelIndex&)"), self.updatePackageInfo)
+            self.tabs.append(tab)
+
+        # Package info
+        self.packageinfo = QtGui.QTextBrowser()
+        self.packageinfo.setReadOnly(True)
+        self.packageinfo.setOpenLinks(False)
+        QtCore.QObject.connect(self.packageinfo, QtCore.SIGNAL("anchorClicked(const QUrl&)"), self.viewBuildOutput)
+        
+        # Refresh timer
+        self.refreshtimer = QtCore.QTimer()
+        QtCore.QObject.connect(self.refreshtimer, QtCore.SIGNAL("timeout()"), self.timerRefresh)
+        self.refreshtimer.start(10000)
+        
+        # Stream parameters and timer
+        self.streamargs = None
+        self.streamoffset = 0
+        self.streamtimer = QtCore.QTimer()
+        QtCore.QObject.connect(self.streamtimer, QtCore.SIGNAL("timeout()"), self.streamBuildOutputUpdate)
+
+        # Layout
+        projectlistlayout = QtGui.QVBoxLayout()
+        projectlistlayout.addWidget(self.projectlistselector)
+        projectlistlayout.addWidget(self.projecttreeview)
+        packagelistlayout = QtGui.QVBoxLayout()
+        packagelistlayout.addWidget(self.projecttab)
+        packagelistlayout.addWidget(self.packageinfo)
+        mainlayout = QtGui.QHBoxLayout()
+        mainlayout.addLayout(projectlistlayout)
+        mainlayout.addLayout(packagelistlayout, 1)
+        self.setLayout(mainlayout)
+
+    #
+    # Slots
+    #
+    def setApiurl(self, apiurl):
+        """
+        setApiurl(apiurl)
+        
+        Set the buildservice API URL
+        """
+        self.bs.apiurl = apiurl
+        self.currentproject = ""
+        self.refreshProjectList()
+
+    def refreshProjectList(self, dummy=None):
+        """
+        refreshProjectList(dummy=None)
+        
+        Refresh the project list from the current buildservice API
+        """
+        self.projectlistmodel.clear()
+        if str(self.projectlistselector.currentText()) == "Watched Projects":
+            projects = self.bs.getWatchedProjectList()
+        else:
+            projects = self.bs.getProjectList()
+        for project in sorted(projects):
+            si = QtGui.QStandardItem(project)
+            si.setEditable(False)
+            self.projectlistmodel.appendRow(si)
+        self.projectlistmodel.setHeaderData(0, QtCore.Qt.Horizontal, QtCore.QVariant("Project"))
+        self.projecttreeview.sortByColumn(0, QtCore.Qt.AscendingOrder)
+
+    def refreshPackageLists(self, project):
+        """
+        refreshPackageLists(project)
+        
+        Refresh the package lists to show results for the specified project
+        """
+        results = self.bs.getResults(project)
+        for tab in self.tabs:
+            tab['model'].setResults(*results)
+            for column in range(tab['model'].columnCount()):
+                tab['view'].resizeColumnToContents(column)
+            self.projecttab.setTabText(self.tabs.index(tab), "%s (%d)" % (tab['name'], tab['model'].rowCount()))
+
+    def projectSelected(self, modelindex):
+        """
+        projectSelected(self, modelindex)
+        
+        Set the current project to that represented by QModelIndex modelindex and refresh the
+        package lists
+        """
+        self.currentproject = str(self.projectlistmodel.data(modelindex, QtCore.Qt.DisplayRole).toString())
+        self.refreshPackageLists(self.currentproject)
+    
+    def timerRefresh(self):
+        """
+        timerRefresh()
+        
+        Refresh the package lists from a timer signal
+        """
+        if self.currentproject:
+            self.refreshtimer.stop()
+            self.refreshPackageLists(self.currentproject)
+            self.refreshtimer.start()
+
+    def updatePackageInfo(self, modelindex):
+        """
+        updatePackageInfo(modelindex)
+        
+        Show info for the package represented by QModelIndex modelindex
+        """
+        # If we're streaming a log file, stop
+        self.streamtimer.stop()
+        model = self.tabs[self.projecttab.currentIndex()]['model']
+        package = model.packageFromRow(modelindex.row())
+        pitext = "<h2>%s</h2>" % package
+        # Results
+        #pitext += "<h3>Results:</h3><table>"
+        pitext += "<table>"
+        status = self.bs.getPackageStatus(self.currentproject, package)
+        for target in model.targets:
+            code = status[target]
+            if code == "succeeded":
+                color = "green"
+            elif code == "building":
+                color = "blue"
+            elif code == "disabled":
+                color = "gray"
+            elif code == "failed" or code.startswith('expansion'):
+                color = "red"
+            else:
+                color = "black"
+            pitext += "<tr><td><b>%s</b></td><td><font color='%s'><b>" % (target, color)
+            if code in ('succeeded', 'building', 'failed'):
+                pitext += "<a href='%s,%s'>%s</a>" % (target, package, code)
+            else:
+                pitext += code
+            pitext += "</b></font></td></tr>"
+        pitext += "</table>"
+#        binaries = self.bs.getBinaryList(self.currentproject, target, package)
+#        if binaries:
+#            pitext += "<b>Binaries:</b><br/>"
+#            for binary in binaries:
+#                pitext += "%s<br/>" % binary
+
+        self.packageinfo.setWordWrapMode(QtGui.QTextOption.WordWrap)
+        self.packageinfo.setText(pitext)
+    
+    def viewBuildOutput(self, arg):
+        """
+        viewBuildOutput(arg)
+        
+        Show build output for the "target/package" specified in arg. If the package is currently
+        building, stream the output until it is finished
+        """
+        (target, package) = str(arg.toString()).split(',')
+        self.packageinfo.clear()
+        # For some reason, the font is set to whatever the calling link had. Argh
+        self.packageinfo.setCurrentFont(QtGui.QFont("Bitstream Vera Sans Mono", 7))
+        self.packageinfo.setTextColor(QtGui.QColor('black'))
+        self.packageinfo.setWordWrapMode(QtGui.QTextOption.NoWrap)
+
+        if self.bs.getPackageStatus(self.currentproject, package)[target] == 'building':
+            self.streamargs = (self.currentproject, target, package)
+            self.streamoffset = 0
+            self.streamBuildOutputUpdate()
+            self.streamtimer.start(1000)
+        else:
+            self.packageinfo.setPlainText(self.bs.getBuildLog(self.currentproject, target, package))
+    
+    def streamBuildOutputUpdate(self):
+        """
+        streamBuildOutputUpdate()
+        
+        Update the build output of a currently building package
+        """
+        self.streamtimer.stop()
+        (project, target, package) = self.streamargs
+        log_chunk = self.bs.getBuildLog(project, target, package, self.streamoffset)
+        if len(log_chunk) == 0:
+            self.streamtimer.stop()
+        self.streamoffset += len(log_chunk)
+        self.packageinfo.append(log_chunk.strip())
+        self.streamtimer.start()
+
+class ApiSelection:
+    """
+    ApiSelection(apiurl, bsw)
+    
+    Allows the selection of an apiurl for BSWidget bsw
+    """
+    def __init__(self, apiurl, bsw):
+       self.apiurl = apiurl
+       self.bsw = bsw
+       
+    def selected(self):
+        """
+        selected(self)
+        
+        Set apiurl of the BSWidget to that represented by this object
+        """
+        self.bsw.setApiurl(self.apiurl)
+
+class MainWindow(QtGui.QMainWindow):
+    """
+    MainWindow()
+    
+    YABSC main window widget
+    """
+    def __init__(self):
+        QtGui.QMainWindow.__init__(self)
+
+        # Initial window size/title
+        self.setWindowTitle('Yabsc')
+        
+        # Actions
+        exit = QtGui.QAction('Exit', self)
+        exit.setShortcut('Ctrl+Q')
+        exit.setStatusTip('Exit yabsc')
+        self.connect(exit, QtCore.SIGNAL('triggered()'), QtCore.SLOT('close()'))
+
+        # Status bar
+        self.statusBar()
+        
+        # BuildService object
+        bs = BuildService()
+
+        # Central widget
+        bsw = BSWidget(bs)
+        self.setCentralWidget(bsw)
+
+        # Menu bar
+        menubar = self.menuBar()
+        file = menubar.addMenu('&File')
+        file.addAction(exit)
+        server = menubar.addMenu('&Server')
+        self.apiselections = []
+        for host in conf.config['auth_dict'].keys():
+            apiurl = "%s://%s" % (conf.config['scheme'], host)
+            action = QtGui.QAction(apiurl, self)
+            action.setStatusTip('Set server to %s' % apiurl)
+            server.addAction(action)
+            apiselection = ApiSelection(apiurl, bsw)
+            self.apiselections.append(apiselection)
+            self.connect(action, QtCore.SIGNAL('triggered()'), apiselection.selected)
+
+if __name__ == '__main__':
+    app = QtGui.QApplication(sys.argv)
+    mw = MainWindow()
+    mw.resize(900, 725)
+    mw.show()
+    sys.exit(app.exec_())
