@@ -297,11 +297,26 @@ class AllResultModel(QtCore.QAbstractItemModel):
         
         This is normally only called within Qt
         """
-        if index.isValid() and role == QtCore.Qt.DisplayRole:
-            return QtCore.QVariant(self._data(index.row(), index.column()))
-        else:
-            return QtCore.QVariant()
-    
+        if not index.isValid():
+             return QtCore.QVariant()
+        txt = self._data(index.row(), index.column())
+        if role == QtCore.Qt.DisplayRole:
+            return QtCore.QVariant(txt)
+        elif role == QtCore.Qt.ForegroundRole:
+            if txt in ("succeeded",):
+                return QtCore.QVariant(QtGui.QColor(QtCore.Qt.green))
+            if txt in ("building",):
+                return QtCore.QVariant(QtGui.QColor(QtCore.Qt.blue))
+            if txt in ("disabled",):
+                return QtCore.QVariant(QtGui.QColor(QtCore.Qt.gray))
+            if txt in ("expansion error", "failed"):
+                return QtCore.QVariant(QtGui.QColor(QtCore.Qt.red))
+        elif role == QtCore.Qt.BackgroundRole:
+            if txt in ("building", "scheduled"):
+                return QtCore.QVariant(QtGui.QColor(QtCore.Qt.gray))
+
+        return QtCore.QVariant()
+
     def headerData(self, section, orientation, role):
         """
         headerData(section, orientation, role) -> QVariant
@@ -451,10 +466,6 @@ class BSWidget(QtGui.QWidget):
         self.projecttreeview.setModel(self.projectlistmodel)
         QtCore.QObject.connect(self.projecttreeview, QtCore.SIGNAL("clicked(const QModelIndex&)"), self.projectSelected)
         
-        # Project information
-        #
-        self.results = Set()
-
         # Tabs
         self.projecttab = QtGui.QTabWidget()
 
