@@ -19,8 +19,10 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-
+import httplib
+import os
 import sys
+import urllib2
 import urlparse
 import xml.etree.cElementTree as ElementTree
 from PyQt4 import QtGui, QtCore
@@ -39,18 +41,79 @@ class DeferredCall:
     """
     def __init__():
         self.result = None
+        self.conn = None
+        self.resulthandler = lambda x: x
+        self.resultargs = []
+        self.resultkwargs = {}
     
-#def meta_get_project_list(apiurl, defer=False):
-#    def result_func(result):
-#        root = ET.parse(result).getroot()
-#        return sorted([ node.get('name') for node in root ])
-#
-#    u = core.makeurl(apiurl, ['source'])
-#    if defer:
-#        return DeferredCall()
-#    else:
-#        f = core.http_GET(u)
-#        return result_func(f)
+    def setResultHandler(self, fn, args=[], kwargs={}):
+        """setResultHandler(fn)
+        
+        Set result handler function. This will process data before returning the result to the
+        caller
+        """
+        self.resulthandler = fn
+        self.resultargs = args
+        self.resultkwargs = kwargs
+
+    def request(self, method, url, data=None, file=None):
+        filefd = None
+
+        urlinfo = urlparse.urlparse(url)
+        if urlinfo.scheme == 'https':
+            self.conn = httplib.HTTPSConnection(urlinfo.netloc)
+        else:
+            self.conn = httplib.HTTPConnection(urlinfo.netloc)
+        
+        headers = {}
+        if method == 'POST':
+            headers['Content-type'] = 'application/x-www-form-urlencoded'
+        elif method == 'PUT':
+            headers['Content-type'] = 'application/octet-stream'
+        
+        if file and not data:
+            size = os.path.getsize(file)
+            if size < 1024*512:
+                data = open(file).read()
+            else:
+                import mmap
+                filefd = os.open(file, 'r+')
+                data = mmap.mmap(filefd, os.path.getsize(file))
+        
+        # cookielib only works with urllib2.Request objects, so we need to give it one
+        ul2req = urllib2.Request(url, data=data, headers=headers)
+        conf.cookiejar.add_cookie_header(ul2req)
+        
+        urlpath = urlparse.urlunparse(('', '', urlinfo.path, urlinfo.params, urlinfo.query, urlinfo.fragment))
+        self.conn.request(method, urlpath, data, ul2req.headers)
+        
+        if filefd:
+            os.close(filefd)
+
+    def GET(self, *args, **kwargs):
+        self.request('GET', *args, **kwargs)
+    
+    def POST(self, *args, **kwargs):
+        self.request('POST', *args, **kwargs)
+    
+    def PUT(self, *args, **kwargs):
+        self.request('PUT', *args, **kwargs)
+    
+    def DELETE(self, *args, **kwargs):
+        self.request('DELETE', *args, **kwargs)
+    
+def meta_get_project_list(apiurl, defer=False):
+    def result_func(result):
+        root = ET.parse(result).getroot()
+        return sorted([ node.get('name') for node in root ])
+
+    u = core.makeurl(apiurl, ['source'])
+    if defer:
+        dc = DeferredCall()
+        dc.GET(u)
+    else:
+        f = core.http_GET(u)
+        return result_func(f)
 
 class BuildService:
     "Interface to Build Service API"
