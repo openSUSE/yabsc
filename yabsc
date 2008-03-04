@@ -31,137 +31,6 @@ import xml.etree.cElementTree as ElementTree
 from PyQt4 import QtGui, QtCore
 from osc import conf, core
 
-#
-# Temporary asynchronous versions of osc api calls
-#
-
-class DeferredCall:
-    """
-    DeferredCall()
-    
-    Represents an in-progress call to a remote API. This allows a caller to defer handling of the
-    result until after it has arrived
-    """
-    def __init__(self):
-        self.result = ""
-        self.conn = None
-        self.resulthandler = lambda x: x
-        self.resultargs = []
-        self.resultkwargs = {}
-    
-    def setResultHandler(self, fn, args=[], kwargs={}):
-        """setResultHandler(fn)
-        
-        Set result handler function. This will process data before returning the result to the
-        caller
-        """
-        self.resulthandler = fn
-        self.resultargs = args
-        self.resultkwargs = kwargs
-
-    def request(self, method, url, data=None, file=None):
-        """request(method, url, data=None, file=None)
-        
-        Make request
-        """
-        filefd = None
-
-        urlinfo = urlparse.urlparse(url)
-        if urlinfo.scheme == 'https':
-            self.conn = httplib.HTTPSConnection(urlinfo.netloc)
-        else:
-            self.conn = httplib.HTTPConnection(urlinfo.netloc)
-        
-        headers = {}
-        if method == 'POST':
-            headers['Content-type'] = 'application/x-www-form-urlencoded'
-        elif method == 'PUT':
-            headers['Content-type'] = 'application/octet-stream'
-        
-        hostname = urlinfo.netloc.split(':')[0]
-        username = conf.config['auth_dict'][hostname]['user']
-        password = conf.config['auth_dict'][hostname]['pass']
-        headers['Authorization'] = "Basic %s" % base64.encodestring("%s:%s" % (username, password))
-        
-        if file and not data:
-            size = os.path.getsize(file)
-            if size < 1024*512:
-                data = open(file).read()
-            else:
-                import mmap
-                filefd = os.open(file, 'r+')
-                data = mmap.mmap(filefd, os.path.getsize(file))
-        
-        # cookielib only works with urllib2.Request objects, so we need to give it one
-        ul2req = urllib2.Request(url, data=data, headers=headers)
-        conf.cookiejar.add_cookie_header(ul2req)
-        
-        urlpath = urlparse.urlunparse(('', '', urlinfo.path, urlinfo.params, urlinfo.query, urlinfo.fragment))
-        self.conn.request(method, urlpath, data, ul2req.headers)
-        
-        if filefd:
-            os.close(filefd)
-    
-    def requestStatus(self):
-        """requestStatus()
-        
-        Get status of request
-        """
-        (io, oo, eo) = select.select([], [self.conn.sock], [], 0)
-        if oo:
-            return True
-        else:
-            False
-
-    def getResult(self):
-        """getResult()
-        
-        Get request result. If request is not complete, returns None
-        """
-        if self.requestStatus():
-            return self.resulthandler(self.conn.getresponse().read(), *self.resultargs, **self.resultkwargs)
-
-    def GET(self, *args, **kwargs):
-        self.request('GET', *args, **kwargs)
-    
-    def POST(self, *args, **kwargs):
-        self.request('POST', *args, **kwargs)
-    
-    def PUT(self, *args, **kwargs):
-        self.request('PUT', *args, **kwargs)
-    
-    def DELETE(self, *args, **kwargs):
-        self.request('DELETE', *args, **kwargs)
-    
-def meta_get_project_list(apiurl, defer=False):
-    def result_func(result):
-        root = ET.parse(result).getroot()
-        return sorted([ node.get('name') for node in root ])
-
-    u = core.makeurl(apiurl, ['source'])
-    if defer:
-        dc = DeferredCall()
-        dc.setResultHandler(result_func)
-        dc.GET(u)
-        return dc
-    else:
-        f = core.http_GET(u)
-        return result_func(f)
-
-def show_prj_results_meta(apiurl, prj, defer=False):
-    def result_func(result):
-        return result.split('\n')
-
-    u = core.makeurl(apiurl, ['build', prj, '_result'])
-    if defer:
-        dc = DeferredCall()
-        dc.setResultHandler(result_func)
-        dc.GET(u)
-        return dc
-    else:
-        f = http_GET(u)
-        return f.readlines()
-
 class BuildService(QtCore.QObject):
     "Interface to Build Service API"
     def __init__(self, apiurl=None):
@@ -173,10 +42,6 @@ class BuildService(QtCore.QObject):
         else:
             self.apiurl = conf.config['apiurl']
         
-        # Result check timers
-        self.resulttimer = QtCore.QTimer()
-        self.connect(self.resulttimer, QtCore.SIGNAL('timeout()'), self._checkResults)
-    
     def getAPIServerList(self):
         """getAPIServerList() -> list
         
@@ -228,27 +93,18 @@ class BuildService(QtCore.QObject):
         
         targets is a list of targets, corresponding to the result code lists
         """
-        print "getResults"
-        self.resultsdc = show_prj_results_meta(self.apiurl, project, defer=True)
-        self.resulttimer.start(250)
-    
-    def _checkResults(self):
-        print "checkResults"
-        if self.resultsdc.requestStatus():
-            print "Complete"
-            self.resulttimer.stop()
-            results = {}
-            targets = []
-            tree = ElementTree.fromstring(''.join(self.resultsdc.getResult()))
-            for result in tree.findall('result'):
-                targets.append('/'.join((result.get('repository'), result.get('arch'))))
-                for status in result.findall('status'):
-                    package = status.get('package')
-                    code = status.get('code')
-                    if not package in results:
-                        results[package] = []
-                    results[package].append(code)
-            self.emit(QtCore.SIGNAL("gotResults"), results, targets)        
+        results = {}
+        targets = []
+        tree = ElementTree.fromstring(''.join(core.show_prj_results_meta(self.apiurl, project)))
+        for result in tree.findall('result'):
+            targets.append('/'.join((result.get('repository'), result.get('arch'))))
+            for status in result.findall('status'):
+                package = status.get('package')
+                code = status.get('code')
+                if not package in results:
+                    results[package] = []
+                results[package].append(code)
+        return (results, targets)
 
     def getTargets(self, project):
         """
@@ -496,6 +352,81 @@ class FilteredResultModel(AllResultModel):
         """
         return 2
 
+#
+# API call threads
+#
+class ProjectListThread(QtCore.QThread):
+    """
+    ProjectListThread(bs)
+    
+    Thread for retrieving project lists. Requires a BuildService object
+    """
+    def __init__(self, bs):
+        QtCore.QThread.__init__(self)
+        self.bs = bs
+        self.projects = []
+        self.watched = True
+    
+    def run(self):
+        if self.watched:
+            self.projects = self.bs.getWatchedProjectList()
+        else:
+            self.projects = self.bs.getProjectList()
+
+class ProjectResultsThread(QtCore.QThread):
+    """
+    ProjectResultsThread(bs)
+    
+    Thread for retrieving project results. Requires a BuildService object
+    """
+    def __init__(self, bs):
+        QtCore.QThread.__init__(self)
+        self.bs = bs
+        self.project = None
+        self.results = []
+        self.targets = []
+    
+    def run(self):
+        (self.results, self.targets) = self.bs.getResults(self.project)
+
+class PackageStatusThread(QtCore.QThread):
+    """
+    PackageStatusThread(bs)
+    
+    Thread for retrieving package status. Requires a BuildService object
+    """
+    def __init__(self, bs):
+        QtCore.QThread.__init__(self)
+        self.bs = bs
+        self.project = None
+        self.package = None
+        self.status = {}
+    
+    def run(self):
+        self.status = self.bs.getPackageStatus(self.project, self.package)
+
+class BuildLogThread(QtCore.QThread):
+    """
+    BuildLogThread(bs)
+    
+    Thread for retrieving build logs. Requires a BuildService object
+    """
+    def __init__(self, bs):
+        QtCore.QThread.__init__(self)
+        self.bs = bs
+        self.project = None
+        self.target = None
+        self.package = None
+        self.offset = 0
+        self.live = False
+        self.log_chunk = ""
+    
+    def run(self):
+        self.log_chunk = self.bs.getBuildLog(self.project, self.target, self.package, self.offset)
+
+#
+# Main widget
+#
 class BSWidget(QtGui.QWidget):
     """
     BSWidget(bs)
@@ -521,11 +452,14 @@ class BSWidget(QtGui.QWidget):
         self.projecttreeview = QtGui.QTreeView()
         self.projecttreeview.setRootIsDecorated(False)
         self.projectlistmodel = QtGui.QStandardItemModel(0, 1, self)
+        self.projectlistmodel.setHeaderData(0, QtCore.Qt.Horizontal, QtCore.QVariant("Project"))
+        self.projectlistthread = ProjectListThread(self.bs)
         self.refreshProjectList()
         self.projecttreeview.setModel(self.projectlistmodel)
         QtCore.QObject.connect(self.projecttreeview, QtCore.SIGNAL("clicked(const QModelIndex&)"), self.projectSelected)
-        
-        # Tabs
+        QtCore.QObject.connect(self.projectlistthread, QtCore.SIGNAL("finished()"), self.updateProjectList)
+
+        # Project results
         self.projecttab = QtGui.QTabWidget()
 
         self.tabs = []
@@ -540,28 +474,29 @@ class BSWidget(QtGui.QWidget):
                 tab['model'] = FilteredResultModel(tabname.lower())
             tab['view'].setModel(tab['model'])
             self.projecttab.addTab(tab['view'], tabname)
-            QtCore.QObject.connect(tab['view'], QtCore.SIGNAL("clicked(const QModelIndex&)"), self.updatePackageInfo)
+            QtCore.QObject.connect(tab['view'], QtCore.SIGNAL("clicked(const QModelIndex&)"), self.refreshPackageInfo)
             self.tabs.append(tab)
+
+        # Result refresh
+        self.refreshtimer = QtCore.QTimer()
+        QtCore.QObject.connect(self.refreshtimer, QtCore.SIGNAL("timeout()"), self.timerRefresh)
+        self.refreshtimer.start(10000)
+        self.projectresultsthread = ProjectResultsThread(self.bs)
+        QtCore.QObject.connect(self.projectresultsthread, QtCore.SIGNAL("finished()"), self.updatePackageLists)
 
         # Package info
         self.packageinfo = QtGui.QTextBrowser()
         self.packageinfo.setReadOnly(True)
         self.packageinfo.setOpenLinks(False)
         QtCore.QObject.connect(self.packageinfo, QtCore.SIGNAL("anchorClicked(const QUrl&)"), self.viewBuildOutput)
-
-        # Connect package list result updates
-        self.connect(self.bs, QtCore.SIGNAL("gotResults"), self.updatePackageLists)
-
-        # Refresh timer
-        self.refreshtimer = QtCore.QTimer()
-        QtCore.QObject.connect(self.refreshtimer, QtCore.SIGNAL("timeout()"), self.timerRefresh)
-        self.refreshtimer.start(10000)
+        self.packagestatusthread = PackageStatusThread(self.bs)
+        QtCore.QObject.connect(self.packagestatusthread, QtCore.SIGNAL("finished()"), self.updatePackageInfo)
 
         # Stream parameters and timer
-        self.streamargs = None
-        self.streamoffset = 0
         self.streamtimer = QtCore.QTimer()
-        QtCore.QObject.connect(self.streamtimer, QtCore.SIGNAL("timeout()"), self.streamBuildOutputUpdate)
+        QtCore.QObject.connect(self.streamtimer, QtCore.SIGNAL("timeout()"), self.requestBuildOutput)
+        self.buildlogthread = BuildLogThread(self.bs)
+        QtCore.QObject.connect(self.buildlogthread, QtCore.SIGNAL("finished()"), self.updateBuildOutput)
 
         # Layout
         projectlistlayout = QtGui.QVBoxLayout()
@@ -594,12 +529,20 @@ class BSWidget(QtGui.QWidget):
         
         Refresh the project list from the current buildservice API
         """
-        self.projectlistmodel.clear()
         if str(self.projectlistselector.currentText()) == "Watched Projects":
-            projects = self.bs.getWatchedProjectList()
+            self.projectlistthread.watched = True
         else:
-            projects = self.bs.getProjectList()
-        for project in sorted(projects):
+            self.projectlistthread.watched = False
+        self.projectlistthread.start()
+    
+    def updateProjectList(self):
+        """
+        updateProjectList()
+        
+        Update project list from result in self.projectlistthread
+        """
+        self.projectlistmodel.clear()
+        for project in sorted(self.projectlistthread.projects):
             si = QtGui.QStandardItem(project)
             si.setEditable(False)
             self.projectlistmodel.appendRow(si)
@@ -612,20 +555,23 @@ class BSWidget(QtGui.QWidget):
         
         Refresh the package lists to show results for the specified project
         """
-        self.bs.getResults(project)
-
-    def updatePackageLists(self, results, targets):
+        self.projectresultsthread.project = project
+        self.projectresultsthread.start()
+    
+    def updatePackageLists(self):
         """
-        updatePackageLists(results)
+        updatePackageLists()
         
-        update the package lists for results
+        Update package list data from result in self.projectresultsthread
         """
-        print "updatePackageLists"
+        results = self.projectresultsthread.results
+        targets = self.projectresultsthread.targets
         for tab in self.tabs:
             tab['model'].setResults(results, targets)
             for column in range(tab['model'].columnCount()):
                 tab['view'].resizeColumnToContents(column)
             self.projecttab.setTabText(self.tabs.index(tab), "%s (%d)" % (tab['name'], tab['model'].rowCount()))
+        self.refreshtimer.start()
 
     def projectSelected(self, modelindex):
         """
@@ -646,24 +592,33 @@ class BSWidget(QtGui.QWidget):
         if self.currentproject:
             self.refreshtimer.stop()
             self.refreshPackageLists(self.currentproject)
-            self.refreshtimer.start()
 
-    def updatePackageInfo(self, modelindex):
+    def refreshPackageInfo(self, modelindex):
         """
-        updatePackageInfo(modelindex)
+        refreshPackageInfo(modelindex)
         
-        Show info for the package represented by QModelIndex modelindex
+        Refresh the package info for the package represented by QModelIndex modelindex
         """
         # If we're streaming a log file, stop
         self.streamtimer.stop()
         model = self.tabs[self.projecttab.currentIndex()]['model']
-        package = model.packageFromRow(modelindex.row())
+        self.packagestatusthread.project = self.currentproject
+        self.packagestatusthread.package = model.packageFromRow(modelindex.row())
+        self.packagestatusthread.start()
+        
+    def updatePackageInfo(self):
+        """
+        updatePackageInfo()
+        
+        Update the pkginfo pane to the result from self.packagestatusthread
+        """
+        package = self.packagestatusthread.package
         pitext = "<h2>%s</h2>" % package
         # Results
         #pitext += "<h3>Results:</h3><table>"
         pitext += "<table>"
-        status = self.bs.getPackageStatus(self.currentproject, package)
-        for target in model.targets:
+        status = self.packagestatusthread.status
+        for target in status.keys():
             code = status[target]
             if code == "succeeded":
                 color = "green"
@@ -704,29 +659,41 @@ class BSWidget(QtGui.QWidget):
         self.packageinfo.setCurrentFont(QtGui.QFont("Bitstream Vera Sans Mono", 7))
         self.packageinfo.setTextColor(QtGui.QColor('black'))
         self.packageinfo.setWordWrapMode(QtGui.QTextOption.NoWrap)
+        
+        self.buildlogthread.project = self.currentproject
+        self.buildlogthread.target = target
+        self.buildlogthread.package = package
+        self.buildlogthread.offset = 0
 
         if self.bs.getPackageStatus(self.currentproject, package)[target] == 'building':
-            self.streamargs = (self.currentproject, target, package)
-            self.streamoffset = 0
-            self.streamBuildOutputUpdate()
-            self.streamtimer.start(1000)
+            self.buildlogthread.live = True
         else:
-            self.packageinfo.setPlainText(self.bs.getBuildLog(self.currentproject, target, package))
+            self.buildlogthread.live = False
+        self.requestBuildOutput()
     
-    def streamBuildOutputUpdate(self):
+    def requestBuildOutput(self):
         """
-        streamBuildOutputUpdate()
+        requestBuildOutput()
         
-        Update the build output of a currently building package
+        Send request to update streaming build output, based on existing buildlogthread parameters
+        """
+        self.buildlogthread.start()
+    
+    def updateBuildOutput(self):
+        """
+        updateBuildOutput()
+        
+        Update the build output
         """
         self.streamtimer.stop()
-        (project, target, package) = self.streamargs
-        log_chunk = self.bs.getBuildLog(project, target, package, self.streamoffset)
-        if len(log_chunk) == 0:
-            self.streamtimer.stop()
-        self.streamoffset += len(log_chunk)
-        self.packageinfo.append(log_chunk.strip())
-        self.streamtimer.start()
+        if self.buildlogthread.live:
+            log_chunk = self.buildlogthread.log_chunk
+            self.buildlogthread.offset += len(log_chunk)
+            self.packageinfo.append(log_chunk.strip())
+            if not len(log_chunk) == 0:
+                self.streamtimer.start(1000)
+        else:
+            self.packageinfo.setPlainText(self.buildlogthread.log_chunk)
 
 class ApiSelection:
     """
