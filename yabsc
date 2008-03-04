@@ -19,8 +19,11 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+import asyncore
+import base64
 import httplib
 import os
+import select
 import sys
 import urllib2
 import urlparse
@@ -39,8 +42,8 @@ class DeferredCall:
     Represents an in-progress call to a remote API. This allows a caller to defer handling of the
     result until after it has arrived
     """
-    def __init__():
-        self.result = None
+    def __init__(self):
+        self.result = ""
         self.conn = None
         self.resulthandler = lambda x: x
         self.resultargs = []
@@ -57,6 +60,10 @@ class DeferredCall:
         self.resultkwargs = kwargs
 
     def request(self, method, url, data=None, file=None):
+        """request(method, url, data=None, file=None)
+        
+        Make request
+        """
         filefd = None
 
         urlinfo = urlparse.urlparse(url)
@@ -70,6 +77,11 @@ class DeferredCall:
             headers['Content-type'] = 'application/x-www-form-urlencoded'
         elif method == 'PUT':
             headers['Content-type'] = 'application/octet-stream'
+        
+        hostname = urlinfo.netloc.split(':')[0]
+        username = conf.config['auth_dict'][hostname]['user']
+        password = conf.config['auth_dict'][hostname]['pass']
+        headers['Authorization'] = "Basic %s" % base64.encodestring("%s:%s" % (username, password))
         
         if file and not data:
             size = os.path.getsize(file)
@@ -89,6 +101,25 @@ class DeferredCall:
         
         if filefd:
             os.close(filefd)
+    
+    def requestStatus(self):
+        """requestStatus()
+        
+        Get status of request
+        """
+        (io, oo, eo) = select.select([], [self.conn.sock], [], 0)
+        if oo:
+            return True
+        else:
+            False
+
+    def getResult(self):
+        """getResult()
+        
+        Get request result. If request is not complete, returns None
+        """
+        if self.requestStatus():
+            return self.resulthandler(self.conn.getresponse().read(), *self.resultargs, **self.resultkwargs)
 
     def GET(self, *args, **kwargs):
         self.request('GET', *args, **kwargs)
@@ -110,19 +141,41 @@ def meta_get_project_list(apiurl, defer=False):
     u = core.makeurl(apiurl, ['source'])
     if defer:
         dc = DeferredCall()
+        dc.setResultHandler(result_func)
         dc.GET(u)
+        return dc
     else:
         f = core.http_GET(u)
         return result_func(f)
 
-class BuildService:
+def show_prj_results_meta(apiurl, prj, defer=False):
+    def result_func(result):
+        return result.split('\n')
+
+    u = core.makeurl(apiurl, ['build', prj, '_result'])
+    if defer:
+        dc = DeferredCall()
+        dc.setResultHandler(result_func)
+        dc.GET(u)
+        return dc
+    else:
+        f = http_GET(u)
+        return f.readlines()
+
+class BuildService(QtCore.QObject):
     "Interface to Build Service API"
     def __init__(self, apiurl=None):
+        QtCore.QObject.__init__(self)
+
         conf.get_config()
         if apiurl:
             self.apiurl = apiurl
         else:
             self.apiurl = conf.config['apiurl']
+        
+        # Result check timers
+        self.resulttimer = QtCore.QTimer()
+        self.connect(self.resulttimer, QtCore.SIGNAL('timeout()'), self._checkResults)
     
     def getAPIServerList(self):
         """getAPIServerList() -> list
@@ -166,8 +219,8 @@ class BuildService:
             projects.append(homeproject)
         return projects
 
-    def getResults(self, project, target=None):
-        """getResults(project, target=None) -> (dict, list)
+    def getResults(self, project):
+        """getResults(project) -> (dict, list)
         
         Get results of a project. Returns (results, targets)
         
@@ -175,13 +228,19 @@ class BuildService:
         
         targets is a list of targets, corresponding to the result code lists
         """
-        results = {}
-        targets = []
-        if target:
-            (repository, arch) = target.split('/')
-        tree = ElementTree.fromstring(''.join(core.show_prj_results_meta(self.apiurl, project)))
-        for result in tree.findall('result'):
-            if not target or (result.get('repository') == repository and result.get('arch') == arch):
+        print "getResults"
+        self.resultsdc = show_prj_results_meta(self.apiurl, project, defer=True)
+        self.resulttimer.start(250)
+    
+    def _checkResults(self):
+        print "checkResults"
+        if self.resultsdc.requestStatus():
+            print "Complete"
+            self.resulttimer.stop()
+            results = {}
+            targets = []
+            tree = ElementTree.fromstring(''.join(self.resultsdc.getResult()))
+            for result in tree.findall('result'):
                 targets.append('/'.join((result.get('repository'), result.get('arch'))))
                 for status in result.findall('status'):
                     package = status.get('package')
@@ -189,7 +248,7 @@ class BuildService:
                     if not package in results:
                         results[package] = []
                     results[package].append(code)
-        return (results, targets)
+            self.emit(QtCore.SIGNAL("gotResults"), results, targets)        
 
     def getTargets(self, project):
         """
@@ -489,12 +548,15 @@ class BSWidget(QtGui.QWidget):
         self.packageinfo.setReadOnly(True)
         self.packageinfo.setOpenLinks(False)
         QtCore.QObject.connect(self.packageinfo, QtCore.SIGNAL("anchorClicked(const QUrl&)"), self.viewBuildOutput)
-        
+
+        # Connect package list result updates
+        self.connect(self.bs, QtCore.SIGNAL("gotResults"), self.updatePackageLists)
+
         # Refresh timer
         self.refreshtimer = QtCore.QTimer()
         QtCore.QObject.connect(self.refreshtimer, QtCore.SIGNAL("timeout()"), self.timerRefresh)
         self.refreshtimer.start(10000)
-        
+
         # Stream parameters and timer
         self.streamargs = None
         self.streamoffset = 0
@@ -550,9 +612,17 @@ class BSWidget(QtGui.QWidget):
         
         Refresh the package lists to show results for the specified project
         """
-        results = self.bs.getResults(project)
+        self.bs.getResults(project)
+
+    def updatePackageLists(self, results, targets):
+        """
+        updatePackageLists(results)
+        
+        update the package lists for results
+        """
+        print "updatePackageLists"
         for tab in self.tabs:
-            tab['model'].setResults(*results)
+            tab['model'].setResults(results, targets)
             for column in range(tab['model'].columnCount()):
                 tab['view'].resizeColumnToContents(column)
             self.projecttab.setTabText(self.tabs.index(tab), "%s (%d)" % (tab['name'], tab['model'].rowCount()))
