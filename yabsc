@@ -169,7 +169,11 @@ class AllResultModel(QtCore.QAbstractItemModel):
         QtCore.QAbstractItemModel.__init__(self)
         self.results = []
         self.targets = []
+        self.targetfilter = "All"
+        self.visibletargets = []
         self.packages = []
+        self.packagefilter = ""
+        self.visiblepackages = []
     
     def setResults(self, results, targets):
         """
@@ -181,6 +185,8 @@ class AllResultModel(QtCore.QAbstractItemModel):
         self.results = results
         self.targets = targets
         self.packages = sorted(results.keys())
+        self.setPackageFilter(self.packagefilter, reset=False)
+        self.setTargetFilter(self.targetfilter, reset=False)
         self.reset()
     
     def _data(self, row, column):
@@ -190,7 +196,7 @@ class AllResultModel(QtCore.QAbstractItemModel):
         Internal method for getting model data. The 0th column is the package name, and subsequent
         columns are result codes
         """
-        package = self.packages[row]
+        package = self.visiblepackages[row]
         if column == 0:
             return package
         else:
@@ -244,7 +250,7 @@ class AllResultModel(QtCore.QAbstractItemModel):
             if section == 0:
                 return QtCore.QVariant("Package")
             else:
-                return QtCore.QVariant(self.targets[section-1])
+                return QtCore.QVariant(self.visibletargets[section-1])
         else:
             return QtCore.QVariant()
 
@@ -270,7 +276,7 @@ class AllResultModel(QtCore.QAbstractItemModel):
         
         Returns the number of rows of data currently in the model
         """
-        return len(self.packages)
+        return len(self.visiblepackages)
         
     def columnCount(self, parent=None):
         """
@@ -278,7 +284,36 @@ class AllResultModel(QtCore.QAbstractItemModel):
         
         Returns the number of columns of data currently in the model
         """
-        return len(self.targets) + 1
+        return len(self.visibletargets) + 1
+    
+    def setPackageFilter(self, filterstring, reset=True):
+        """
+        setPackageFilter(filterstring)
+        
+        Only show packages matching filterstring
+        """
+        self.packagefilter = filterstring
+        if filterstring:
+            self.visiblepackages = [p for p in self.packages if filterstring in p]
+        else:
+            self.visiblepackages = self.packages
+        if reset:
+            self.reset()
+
+    def setTargetFilter(self, target, reset=True):
+        """
+        setTargetFilter(target)
+        
+        Only show target
+        """
+        self.targetfilter = target
+        if target == "All":
+            self.visibletargets = self.targets
+        else:
+            self.visibletargets = [t for t in self.targets if t == target]
+        if reset:
+            self.reset()
+
 
 class FilteredResultModel(AllResultModel):
     """
@@ -300,6 +335,8 @@ class FilteredResultModel(AllResultModel):
         self.results = results
         self.targets = targets
         self.packages = sorted(filter(lambda p: self.status in self.results[p], results.keys()))
+        self.setPackageFilter(self.packagefilter, reset=False)
+        self.setTargetFilter(self.targetfilter, reset=False)
         self.reset()
     
     def getMatchingPackageTargets(self, package):
@@ -309,7 +346,7 @@ class FilteredResultModel(AllResultModel):
         Get a list of targets of a package whose code matches the model's status filter
         """
         targets = []
-        for (i, target) in enumerate(self.targets):
+        for (i, target) in enumerate(self.visibletargets):
             if self.results[package][i] == self.status:
                 targets.append(target)
         return targets
@@ -322,7 +359,7 @@ class FilteredResultModel(AllResultModel):
         column is a comma-separated list of package targets whose code matches the model's status
         filter
         """
-        package = self.packages[row]
+        package = self.visiblepackages[row]
         if column == 0:
             return package
         else:
@@ -351,6 +388,30 @@ class FilteredResultModel(AllResultModel):
         Returns the number of columns of data in this model (always 2 here)
         """
         return 2
+
+    def setPackageFilter(self, filterstring, reset=True, updatetargetfilter=True):
+        """
+        setPackageFilter(filterstring)
+        
+        Only show packages matching filterstring
+        """
+        AllResultModel.setPackageFilter(self, filterstring, reset=False)
+        if updatetargetfilter:
+            self.setTargetFilter(self.targetfilter, reset)
+
+    def setTargetFilter(self, target, reset=True):
+        """
+        setTargetFilter(target)
+        
+        Only show target
+        """
+        AllResultModel.setTargetFilter(self, target, reset=False)
+        if self.targetfilter != "All":
+            self.visiblepackages = [p for p in self.visiblepackages if self.getMatchingPackageTargets(p)]
+        else:
+            self.setPackageFilter(self.packagefilter, reset=False, updatetargetfilter=False)
+        if reset:
+            self.reset()
 
 #
 # API call threads
@@ -458,6 +519,16 @@ class BSWidget(QtGui.QWidget):
         self.projecttreeview.setModel(self.projectlistmodel)
         QtCore.QObject.connect(self.projecttreeview, QtCore.SIGNAL("clicked(const QModelIndex&)"), self.projectSelected)
         QtCore.QObject.connect(self.projectlistthread, QtCore.SIGNAL("finished()"), self.updateProjectList)
+        
+        # Filter widgets
+        searchlabel = QtGui.QLabel("Search")
+        self.searchedit = QtGui.QLineEdit()
+        QtCore.QObject.connect(self.searchedit, QtCore.SIGNAL("textChanged(const QString&)"), self.filterPackages)
+        targetlabel = QtGui.QLabel("Target")
+        self.targetselector = QtGui.QComboBox()
+        self.targetselector.setSizeAdjustPolicy(QtGui.QComboBox.AdjustToContents)
+        self.targetselector.addItem("All")
+        QtCore.QObject.connect(self.targetselector, QtCore.SIGNAL("currentIndexChanged(const QString&)"), self.filterTarget)
 
         # Project results
         self.projecttab = QtGui.QTabWidget()
@@ -502,7 +573,13 @@ class BSWidget(QtGui.QWidget):
         projectlistlayout = QtGui.QVBoxLayout()
         projectlistlayout.addWidget(self.projectlistselector)
         projectlistlayout.addWidget(self.projecttreeview)
+        filterlayout = QtGui.QHBoxLayout()
+        filterlayout.addWidget(searchlabel)
+        filterlayout.addWidget(self.searchedit)
+        filterlayout.addWidget(targetlabel)
+        filterlayout.addWidget(self.targetselector)
         packagelistlayout = QtGui.QVBoxLayout()
+        packagelistlayout.addLayout(filterlayout)
         packagelistlayout.addWidget(self.projecttab)
         packagelistlayout.addWidget(self.packageinfo)
         mainlayout = QtGui.QHBoxLayout()
@@ -581,6 +658,9 @@ class BSWidget(QtGui.QWidget):
         package lists
         """
         self.currentproject = str(self.projectlistmodel.data(modelindex, QtCore.Qt.DisplayRole).toString())
+        self.targetselector.clear()
+        self.targetselector.addItem("All")
+        self.targetselector.addItems(self.bs.getTargets(self.currentproject))
         self.refreshPackageLists(self.currentproject)
     
     def timerRefresh(self):
@@ -694,6 +774,27 @@ class BSWidget(QtGui.QWidget):
                 self.streamtimer.start(1000)
         else:
             self.packageinfo.setPlainText(self.buildlogthread.log_chunk)
+    
+    def filterPackages(self, filterstring):
+        """
+        filterPackages(filterstring)
+        
+        Show only packages that match filterstring
+        """
+        for tab in self.tabs:
+            tab['model'].setPackageFilter(str(filterstring))
+            for column in range(tab['model'].columnCount()):
+                tab['view'].resizeColumnToContents(column)
+            self.projecttab.setTabText(self.tabs.index(tab), "%s (%d)" % (tab['name'], tab['model'].rowCount()))
+        
+        
+    def filterTarget(self, target):
+        for tab in self.tabs:
+            tab['model'].setTargetFilter(str(target))
+            for column in range(tab['model'].columnCount()):
+                tab['view'].resizeColumnToContents(column)
+            self.projecttab.setTabText(self.tabs.index(tab), "%s (%d)" % (tab['name'], tab['model'].rowCount()))
+        
 
 class ApiSelection:
     """
