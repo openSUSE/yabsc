@@ -127,12 +127,14 @@ class BuildService(QtCore.QObject):
         values
         """
         status = {}
-        for result in core.get_results(self.apiurl, project, package):
-            spl = result.split()
-            target = '/'.join(spl[:2])
-            code = ' '.join(spl[2:])
-            if code.startswith('failed'):
-                code = 'failed'
+        tree = ElementTree.fromstring(''.join(core.show_results_meta(self.apiurl, project, package)))
+        for result in tree.findall('result'):
+            target = '/'.join((result.get('repository'), result.get('arch')))
+            statusnode = result.find('status')
+            code = statusnode.get('code')
+            details = statusnode.find('details')
+            if details is not None:
+                code += ': ' + details.text
             status[target] = code
         return status
     
@@ -711,22 +713,23 @@ class BSWidget(QtGui.QWidget):
         pitext += "<table>"
         status = self.packagestatusthread.status
         for target in status.keys():
-            code = status[target]
+            statustext = status[target]
+            code = statustext.split(':')[0]
             if code == "succeeded":
                 color = "green"
             elif code == "building":
                 color = "blue"
             elif code == "disabled":
                 color = "gray"
-            elif code == "failed" or code.startswith('expansion'):
+            elif code in ('failed', 'expansion error'):
                 color = "red"
             else:
                 color = "black"
             pitext += "<tr><td><b>%s</b></td><td><font color='%s'><b>" % (target, color)
             if code in ('succeeded', 'building', 'failed'):
-                pitext += "<a href='%s,%s'>%s</a>" % (target, package, code)
+                pitext += "<a href='%s,%s'>%s</a>" % (target, package, statustext)
             else:
-                pitext += code
+                pitext += statustext
             pitext += "</b></font></td></tr>"
         pitext += "</table>"
 #        binaries = self.bs.getBinaryList(self.currentproject, target, package)
