@@ -21,6 +21,7 @@
 
 import asyncore
 import base64
+import ConfigParser
 import httplib
 import os
 import select
@@ -837,8 +838,28 @@ class MainWindow(QtGui.QMainWindow):
     """
     def __init__(self):
         QtGui.QMainWindow.__init__(self)
+        
+        # Configuration
+        self.cfgfilename = os.path.expanduser('~/.yabscrc')
+        self.cfg = ConfigParser.ConfigParser()
 
-        # Initial window size/title
+        if os.path.exists(self.cfgfilename):
+            try:
+                f = open(self.cfgfilename)
+                self.cfg.readfp(f)
+                f.close()
+            except IOError, e:
+                QtGui.QMessageBox.critical(self, "Configuration File Error",
+                                           "Could not read configuration file %s: %s" % (self.cfgfilename, e))
+        
+        # Window size
+        if self.cfg.has_section('persistence'):
+            size = [int(v) for v in self.cfg.get('persistence', 'size').split(',')]
+            self.resize(*size)
+        else:
+            self.resize(900, 725)
+
+        # Initial window title
         self.setWindowTitle('Yabsc')
         
         # Actions
@@ -871,10 +892,28 @@ class MainWindow(QtGui.QMainWindow):
             apiselection = ApiSelection(apiurl, bsw)
             self.apiselections.append(apiselection)
             self.connect(action, QtCore.SIGNAL('triggered()'), apiselection.selected)
+    
+    def closeEvent(self, event):
+        """
+        closeEvent(event)
+        
+        Event handler for window close
+        """
+        if not self.cfg.has_section('persistence'):
+            self.cfg.add_section('persistence')
+        size = self.frameSize()
+        self.cfg.set('persistence', 'size', '%s,%s' % (size.width(), size.height()))
+        try:
+            f = open(self.cfgfilename, 'w')
+            self.cfg.write(f)
+            f.close()
+        except IOError, e:
+            QtGui.QMessageBox.critical(self, "Configuration File Error",
+                                       "Could not write configuration file %s: %s" % (self.cfgfilename, e))
+        QtGui.QMainWindow.closeEvent(self, event)
 
 if __name__ == '__main__':
     app = QtGui.QApplication(sys.argv)
     mw = MainWindow()
-    mw.resize(900, 725)
     mw.show()
     sys.exit(app.exec_())
