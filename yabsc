@@ -32,6 +32,29 @@ import xml.etree.cElementTree as ElementTree
 from PyQt4 import QtGui, QtCore
 from osc import conf, core
 
+defaultconfig = {'general': {'autoscroll': False},
+                 'persistence': {'size': '900,725'}}
+
+def checkState2bool(checkstate):
+    """
+    checkState2bool(checkstate) -> bool
+    
+    Convert a Qt.CheckState to bool. Ignores tristate
+    """
+    bool(checkstate)
+
+def bool2checkState(b):
+    """
+    bool2checkState(b) -> Qt.CheckState
+    
+    Convert a bool to Qt.CheckState. Ignores tristate
+    """
+    if b:
+        return QtCore.Qt.Checked
+    else:
+        return QtCore.Qt.Unchecked
+
+
 class BuildService(QtCore.QObject):
     "Interface to Build Service API"
     def __init__(self, apiurl=None):
@@ -493,15 +516,18 @@ class BuildLogThread(QtCore.QThread):
 #
 class BSWidget(QtGui.QWidget):
     """
-    BSWidget(bs)
+    BSWidget(bs, cfg)
     
-    Build Service status viewer widget. bs is a BuildService object
+    Build Service status viewer widget. bs is a BuildService object and cfg is a ConfigParser object
     """
-    def __init__(self, bs):
+    def __init__(self, bs, cfg):
         QtGui.QWidget.__init__(self)
         
         # BuildService object
         self.bs = bs
+        
+        # Config object
+        self.cfg = cfg
         
         # Convenience attributes
         self.currentproject = ''
@@ -790,6 +816,8 @@ class BSWidget(QtGui.QWidget):
                 self.streamtimer.start(1000)
         else:
             self.packageinfo.setPlainText(self.buildlogthread.log_chunk)
+            if self.cfg.getboolean('general', 'autoscroll'):
+                self.packageinfo.moveCursor(QtGui.QTextCursor.End)
     
     def filterPackages(self, filterstring):
         """
@@ -830,6 +858,33 @@ class ApiSelection:
         """
         self.bsw.setApiurl(self.apiurl)
 
+class ConfigureDialog(QtGui.QDialog):
+    """
+    ConfigureDialog()
+    
+    Yabsc configuration dialog
+    """
+    def __init__(self, parent=None):
+        QtGui.QDialog.__init__(self, parent)
+        
+        self.autoscrollcheckbox = QtGui.QCheckBox("Automatically scroll to the bottom of finished build logs")
+        
+        layout = QtGui.QVBoxLayout()
+        layout.addWidget(self.autoscrollcheckbox)
+        
+        buttonlayout = QtGui.QHBoxLayout()
+        buttonlayout.addStretch(1)
+        ok = QtGui.QPushButton('Ok')
+        self.connect(ok, QtCore.SIGNAL('clicked()'), self.accept)
+        buttonlayout.addWidget(ok)
+        cancel = QtGui.QPushButton('Cancel')
+        self.connect(cancel, QtCore.SIGNAL('clicked()'), self.reject)
+        buttonlayout.addWidget(cancel)
+        
+        layout.addLayout(buttonlayout)
+        
+        self.setLayout(layout)
+
 class MainWindow(QtGui.QMainWindow):
     """
     MainWindow()
@@ -852,12 +907,17 @@ class MainWindow(QtGui.QMainWindow):
                 QtGui.QMessageBox.critical(self, "Configuration File Error",
                                            "Could not read configuration file %s: %s" % (self.cfgfilename, e))
         
+        # Set configuration defaults
+        for section in defaultconfig:
+            if not self.cfg.has_section(section):
+                self.cfg.add_section(section)
+            for (key, val) in defaultconfig[section].items():
+                if not self.cfg.has_option(section, key):
+                    self.cfg.set(section, key, str(val))
+
         # Window size
-        if self.cfg.has_section('persistence'):
-            size = [int(v) for v in self.cfg.get('persistence', 'size').split(',')]
-            self.resize(*size)
-        else:
-            self.resize(900, 725)
+        size = [int(v) for v in self.cfg.get('persistence', 'size').split(',')]
+        self.resize(*size)
 
         # Initial window title
         self.setWindowTitle('Yabsc')
@@ -875,13 +935,14 @@ class MainWindow(QtGui.QMainWindow):
         bs = BuildService()
 
         # Central widget
-        bsw = BSWidget(bs)
+        bsw = BSWidget(bs, self.cfg)
         self.setCentralWidget(bsw)
 
         # Menu bar
         menubar = self.menuBar()
         file = menubar.addMenu('&File')
         file.addAction(exit)
+        
         server = menubar.addMenu('&Server')
         self.apiselections = []
         for host in conf.config['auth_dict'].keys():
@@ -892,6 +953,24 @@ class MainWindow(QtGui.QMainWindow):
             apiselection = ApiSelection(apiurl, bsw)
             self.apiselections.append(apiselection)
             self.connect(action, QtCore.SIGNAL('triggered()'), apiselection.selected)
+        
+        settings = menubar.addMenu('S&ettings')
+        configureaction = QtGui.QAction("&Configure Yabsc...", self)
+        configureaction.setStatusTip("Configure Yabsc options")
+        settings.addAction(configureaction)
+        self.connect(configureaction, QtCore.SIGNAL('triggered()'), self.configure)
+
+    def configure(self):
+        """
+        configure()
+        
+        Configure Yabsc
+        """
+        dialog = ConfigureDialog(self)
+        dialog.autoscrollcheckbox.setCheckState(bool2checkState(self.cfg.getboolean('general', 'autoscroll')))
+        ret = dialog.exec_()
+        if ret:
+            self.cfg.set('general', 'autoscroll', str(bool(dialog.autoscrollcheckbox.checkState())))
     
     def closeEvent(self, event):
         """
