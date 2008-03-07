@@ -932,10 +932,12 @@ class MainWindow(QtGui.QMainWindow):
         self.statusBar()
         
         # BuildService object
-        bs = BuildService()
+        self.bs = BuildService()
+        if self.cfg.has_option('persistence', 'apiurl'):
+            self.bs.apiurl = self.cfg.get('persistence', 'apiurl')
 
         # Central widget
-        bsw = BSWidget(bs, self.cfg)
+        bsw = BSWidget(self.bs, self.cfg)
         self.setCentralWidget(bsw)
 
         # Menu bar
@@ -978,10 +980,9 @@ class MainWindow(QtGui.QMainWindow):
         
         Event handler for window close
         """
-        if not self.cfg.has_section('persistence'):
-            self.cfg.add_section('persistence')
         size = self.frameSize()
         self.cfg.set('persistence', 'size', '%s,%s' % (size.width(), size.height()))
+        self.cfg.set('persistence', 'apiurl', self.bs.apiurl)
         try:
             f = open(self.cfgfilename, 'w')
             self.cfg.write(f)
