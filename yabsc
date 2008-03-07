@@ -537,6 +537,8 @@ class BSWidget(QtGui.QWidget):
         self.projectlistselector = QtGui.QComboBox()
         self.projectlistselector.addItem("Watched Projects")
         self.projectlistselector.addItem("All Projects")
+        if self.cfg.has_option('persistence', 'projectlist'):
+            self.projectlistselector.setCurrentIndex(self.cfg.getint('persistence', 'projectlist'))
         QtCore.QObject.connect(self.projectlistselector, QtCore.SIGNAL("currentIndexChanged(const QString&)"), self.refreshProjectList)
 
         # The project list
@@ -990,6 +992,7 @@ class MainWindow(QtGui.QMainWindow):
         size = self.frameSize()
         self.cfg.set('persistence', 'size', '%s,%s' % (size.width(), size.height()))
         self.cfg.set('persistence', 'apiurl', self.bs.apiurl)
+        self.cfg.set('persistence', 'projectlist', str(self.bsw.projectlistselector.currentIndex()))
         self.cfg.set('persistence', 'project', self.bsw.currentproject)
         try:
             f = open(self.cfgfilename, 'w')
