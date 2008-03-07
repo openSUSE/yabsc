@@ -531,6 +531,7 @@ class BSWidget(QtGui.QWidget):
         
         # Convenience attributes
         self.currentproject = ''
+        self.initialprojectrefresh = True
         
         # Project list selector
         self.projectlistselector = QtGui.QComboBox()
@@ -654,6 +655,12 @@ class BSWidget(QtGui.QWidget):
             self.projectlistmodel.appendRow(si)
         self.projectlistmodel.setHeaderData(0, QtCore.Qt.Horizontal, QtCore.QVariant("Project"))
         self.projecttreeview.sortByColumn(0, QtCore.Qt.AscendingOrder)
+        if self.initialprojectrefresh:
+            self.initialprojectrefresh = False
+            if self.cfg.has_option('persistence', 'project'):
+                lastproject = self.cfg.get('persistence', 'project')
+                if lastproject in self.projectlistthread.projects:
+                    self.refreshPackageLists(lastproject)
 
     def refreshPackageLists(self, project):
         """
@@ -937,8 +944,8 @@ class MainWindow(QtGui.QMainWindow):
             self.bs.apiurl = self.cfg.get('persistence', 'apiurl')
 
         # Central widget
-        bsw = BSWidget(self.bs, self.cfg)
-        self.setCentralWidget(bsw)
+        self.bsw = BSWidget(self.bs, self.cfg)
+        self.setCentralWidget(self.bsw)
 
         # Menu bar
         menubar = self.menuBar()
@@ -952,7 +959,7 @@ class MainWindow(QtGui.QMainWindow):
             action = QtGui.QAction(apiurl, self)
             action.setStatusTip('Set server to %s' % apiurl)
             server.addAction(action)
-            apiselection = ApiSelection(apiurl, bsw)
+            apiselection = ApiSelection(apiurl, self.bsw)
             self.apiselections.append(apiselection)
             self.connect(action, QtCore.SIGNAL('triggered()'), apiselection.selected)
         
@@ -983,6 +990,7 @@ class MainWindow(QtGui.QMainWindow):
         size = self.frameSize()
         self.cfg.set('persistence', 'size', '%s,%s' % (size.width(), size.height()))
         self.cfg.set('persistence', 'apiurl', self.bs.apiurl)
+        self.cfg.set('persistence', 'project', self.bsw.currentproject)
         try:
             f = open(self.cfgfilename, 'w')
             self.cfg.write(f)
