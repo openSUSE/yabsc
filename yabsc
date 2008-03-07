@@ -662,6 +662,10 @@ class BSWidget(QtGui.QWidget):
             if self.cfg.has_option('persistence', 'project'):
                 lastproject = self.cfg.get('persistence', 'project')
                 if lastproject in self.projectlistthread.projects:
+                    self.currentproject = lastproject
+                    self.targetselector.clear()
+                    self.targetselector.addItem("All")
+                    self.targetselector.addItems(self.bs.getTargets(lastproject))
                     self.refreshPackageLists(lastproject)
 
     def refreshPackageLists(self, project):
