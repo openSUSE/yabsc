@@ -800,7 +800,7 @@ class BSWidget(QtGui.QWidget):
         self.buildlogthread.package = package
         self.buildlogthread.offset = 0
 
-        if self.bs.getPackageStatus(self.currentproject, package)[target] == 'building':
+        if self.bs.getPackageStatus(self.currentproject, package)[target].startswith('building'):
             self.buildlogthread.live = True
         else:
             self.buildlogthread.live = False
