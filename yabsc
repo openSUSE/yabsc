@@ -41,7 +41,7 @@ def checkState2bool(checkstate):
     
     Convert a Qt.CheckState to bool. Ignores tristate
     """
-    bool(checkstate)
+    return bool(checkstate)
 
 def bool2checkState(b):
     """
@@ -567,7 +567,7 @@ class BSWidget(QtGui.QWidget):
 
         self.tabs = []
         
-        for tabname in ('All', 'Failed', 'Building', 'Blocked', 'Expansion Error', 'Broken', 'Disabled'):
+        for tabname in ('All', 'Succeeded', 'Failed', 'Building', 'Blocked', 'Expansion Error', 'Broken', 'Disabled'):
             tab = {'name': tabname}
             tab['view'] = QtGui.QTreeView()
             tab['view'].setRootIsDecorated(False)
@@ -618,7 +618,7 @@ class BSWidget(QtGui.QWidget):
         mainlayout.addLayout(projectlistlayout)
         mainlayout.addLayout(packagelistlayout, 1)
         self.setLayout(mainlayout)
-
+    
     #
     # Slots
     #
@@ -880,6 +880,8 @@ class ConfigureDialog(QtGui.QDialog):
     def __init__(self, parent=None):
         QtGui.QDialog.__init__(self, parent)
         
+        self.setWindowTitle("Yabsc Configuration")
+        
         self.autoscrollcheckbox = QtGui.QCheckBox("Automatically scroll to the bottom of finished build logs")
         
         layout = QtGui.QVBoxLayout()
@@ -897,6 +899,54 @@ class ConfigureDialog(QtGui.QDialog):
         layout.addLayout(buttonlayout)
         
         self.setLayout(layout)
+
+
+class ExportDialog(QtGui.QDialog):
+    """
+    ExportDialog()
+    
+    Yabsc export dialog
+    """
+    def __init__(self, model, parent=None):
+        QtGui.QDialog.__init__(self, parent)
+
+        self.setWindowTitle("Yabsc Export")
+
+        layout = QtGui.QVBoxLayout()
+
+        self.headers = []
+        for i in xrange(model.columnCount()):
+            name = str(model.headerData(i, 0, QtCore.Qt.DisplayRole).toString())
+            checkbox = QtGui.QCheckBox('Include column "%s"' % name)
+            checkbox.setCheckState(bool2checkState(True))
+            self.headers.append({'name': name, 'index': i, 'checkbox': checkbox})
+
+            layout.addWidget(checkbox)
+        
+        seplayout = QtGui.QHBoxLayout()
+        seplabel = QtGui.QLabel('Separator')
+        seplayout.addWidget(seplabel)
+        self.sepcombo = QtGui.QComboBox()
+        self.sepcombo.addItems(['Tab', 'Comma', 'Space'])
+        self.separatormap = {'Tab': '\t',
+                             'Comma': ',',
+                             'Space': ' '}
+        seplayout.addWidget(self.sepcombo)
+        layout.addLayout(seplayout)
+        
+        buttonlayout = QtGui.QHBoxLayout()
+        buttonlayout.addStretch(1)
+        ok = QtGui.QPushButton('Ok')
+        self.connect(ok, QtCore.SIGNAL('clicked()'), self.accept)
+        buttonlayout.addWidget(ok)
+        cancel = QtGui.QPushButton('Cancel')
+        self.connect(cancel, QtCore.SIGNAL('clicked()'), self.reject)
+        buttonlayout.addWidget(cancel)
+        
+        layout.addLayout(buttonlayout)
+        
+        self.setLayout(layout)
+
 
 class MainWindow(QtGui.QMainWindow):
     """
@@ -956,6 +1006,10 @@ class MainWindow(QtGui.QMainWindow):
         # Menu bar
         menubar = self.menuBar()
         file = menubar.addMenu('&File')
+        exportaction = QtGui.QAction("&Export ...", self)
+        exportaction.setStatusTip("Export current view to file")
+        file.addAction(exportaction)
+        self.connect(exportaction, QtCore.SIGNAL('triggered()'), self.export)
         file.addAction(exit)
         
         server = menubar.addMenu('&Server')
@@ -974,6 +1028,42 @@ class MainWindow(QtGui.QMainWindow):
         configureaction.setStatusTip("Configure Yabsc options")
         settings.addAction(configureaction)
         self.connect(configureaction, QtCore.SIGNAL('triggered()'), self.configure)
+
+    def export(self):
+        """
+        export()
+
+        Export current view to file
+        """
+        tab = self.bsw.tabs[self.bsw.projecttab.currentIndex()]
+        model = tab['model']
+
+        dialog = ExportDialog(model)
+        ret = dialog.exec_()
+
+        if ret:
+            for c in dialog.headers:
+                print checkState2bool(c['checkbox'].checkState())
+            columns = [c['index'] for c in dialog.headers if checkState2bool(c['checkbox'].checkState())]
+            print columns
+            separator = dialog.separatormap[str(dialog.sepcombo.currentText())]
+
+            name = ("%s-%s.txt") % (self.bsw.currentproject, tab['name'].lower())
+
+            filename = QtGui.QFileDialog.getSaveFileName(self,
+                                                         "Export",
+                                                         os.path.join(os.environ['HOME'], name),
+                                                         "Text Files (*.txt);;All Files (*.*)")
+            if filename:
+                try:
+                    fout = open(str(filename), 'w')
+
+                    for row in xrange(model.rowCount()):
+                        fout.write(separator.join(map(lambda col: model._data(row, col), columns)) + '\n')
+                    fout.close()
+                except IOError, e:
+                    QtGui.QMessageBox.critical(self, "Export Error",
+                                                   "Could not write to file %s: %s" % (filename, e))
 
     def configure(self):
         """
