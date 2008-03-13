@@ -26,6 +26,7 @@ import httplib
 import os
 import select
 import sys
+import time
 import urllib2
 import urlparse
 import xml.etree.cElementTree as ElementTree
@@ -181,6 +182,34 @@ class BuildService(QtCore.QObject):
         """
         (repo, arch) = target.split('/')
         return core.get_buildlog(self.apiurl, project, package, repo, arch, offset)
+    
+    def getWorkerStatus(self):
+        """
+        getWorkerStatus() -> list of dicts
+        
+        Get worker status as a list of dictionaries. Each dictionary contains the keys 'id',
+        'hostarch', and 'status'. If the worker is building, the dict will additionally contain the
+        keys 'project', 'package', 'target', and 'starttime'
+        """
+        url = core.makeurl(self.apiurl, ['build', '_workerstatus'])
+        f = core.http_GET(url)
+        tree = ElementTree.parse(f).getroot()
+        workerstatus = []
+        for worker in tree.findall('building'):
+            d = {'id': worker.get('workerid'),
+                 'status': 'building'}
+            for attr in ('hostarch', 'project', 'package', 'starttime'):
+                d[attr] = worker.get(attr)
+            d['target'] = '/'.join((worker.get('repository'), worker.get('arch')))
+            d['started'] = time.asctime(time.localtime(float(worker.get('starttime'))))
+            workerstatus.append(d)
+        for worker in tree.findall('idle'):
+            d = {'id': worker.get('workerid'),
+                 'hostarch': worker.get('hostarch'),
+                 'status': 'idle'}
+            workerstatus.append(d)
+        return workerstatus
+
 
 #
 # Data models
@@ -439,6 +468,115 @@ class FilteredResultModel(AllResultModel):
         if reset:
             self.reset()
 
+
+class AllWorkerModel(QtCore.QAbstractItemModel):
+    """AllWorkerModel()
+    
+    Model for workers
+    """
+    def __init__(self):
+        QtCore.QAbstractItemModel.__init__(self)
+        self.workers = []
+        self.columnmap = ('id', 'hostarch', 'status', 'project', 'package', 'target', 'started')
+    
+    def setWorkers(self, workers):
+        """
+        setWorkers(workers)
+        
+        Set the workers list of the model, as returned from BuildService.getWorkerStatus()
+        """
+        self.workers = workers
+        self.reset()
+    
+    def _data(self, row, column):
+        """
+        _data(row, column) -> str
+        
+        Internal method for getting model data
+        """
+        try:
+            return self.workers[row][self.columnmap[column]]
+        except KeyError:
+            return ""
+
+    def data(self, index, role):
+        """
+        data(index, role) -> Qvariant
+        
+        Returns the QVariant model data located at QModelIndex index
+        
+        This is normally only called within Qt
+        """
+        if index.isValid() and role == QtCore.Qt.DisplayRole:
+            return QtCore.QVariant(self._data(index.row(), index.column()))
+        return QtCore.QVariant()
+
+    def headerData(self, section, orientation, role):
+        """
+        headerData(section, orientation, role) -> QVariant
+        
+        Returns header for section (column) with orientation (Qt.Horizontal or Qt.Vertical)
+        
+        This is normally only called within Qt
+        """
+        if role == QtCore.Qt.DisplayRole:
+            return QtCore.QVariant(self.columnmap[section].capitalize())
+        else:
+            return QtCore.QVariant()
+
+    def index(self, row, column, parent=None):
+        """
+        index(row, column, parent) -> QModelIndex
+        
+        Returns a QModelIndex object representing row and column
+        """
+        return self.createIndex(row, column, id(self._data(row, column)))
+        
+    def parent(self, index):
+        """
+        parent(index) -> QModelIndex
+        
+        Return the parent index of an index (for trees)
+        """
+        return QtCore.QModelIndex()
+
+    def rowCount(self, parent=None):
+        """
+        rowCount() -> int
+        
+        Returns the number of rows of data currently in the model
+        """
+        return len(self.workers)
+        
+    def columnCount(self, parent=None):
+        """
+        columnCount() -> int
+        
+        Returns the number of columns of data currently in the model
+        """
+        return len(self.columnmap)
+
+
+class FilteredWorkerModel(AllWorkerModel):
+    """
+    FilteredWorkerModel(status)
+    
+    Model for workers that match a particular status
+    """
+    def __init__(self, status):
+        AllWorkerModel.__init__(self)
+        self.status = status
+
+    def setWorkers(self, workers):
+        """
+        setWorkers(workers)
+        
+        Set the workers list of the model, as returned from BuildService.getWorkerStatus()
+        """
+        self.workers = [w for w in workers if w['status'] == self.status]
+        self.reset()
+
+
 #
 # API call threads
 #
@@ -492,6 +630,20 @@ class PackageStatusThread(QtCore.QThread):
     def run(self):
         self.status = self.bs.getPackageStatus(self.project, self.package)
 
+class WorkerStatusThread(QtCore.QThread):
+    """
+    WorkerStatusThread(bs)
+    
+    Thread for retrieving worker status. Requires a BuildService object
+    """
+    def __init__(self, bs):
+        QtCore.QThread.__init__(self)
+        self.bs = bs
+        self.workers = []
+    
+    def run(self):
+        self.workers = self.bs.getWorkerStatus()
+
 class BuildLogThread(QtCore.QThread):
     """
     BuildLogThread(bs)
@@ -522,6 +674,7 @@ class BSWidget(QtGui.QWidget):
     """
     def __init__(self, bs, cfg):
         QtGui.QWidget.__init__(self)
+        self.viewable = False
         
         # BuildService object
         self.bs = bs
@@ -583,7 +736,6 @@ class BSWidget(QtGui.QWidget):
         # Result refresh
         self.refreshtimer = QtCore.QTimer()
         QtCore.QObject.connect(self.refreshtimer, QtCore.SIGNAL("timeout()"), self.timerRefresh)
-        self.refreshtimer.start(10000)
         self.projectresultsthread = ProjectResultsThread(self.bs)
         QtCore.QObject.connect(self.projectresultsthread, QtCore.SIGNAL("finished()"), self.updatePackageLists)
 
@@ -618,6 +770,22 @@ class BSWidget(QtGui.QWidget):
         mainlayout.addLayout(projectlistlayout)
         mainlayout.addLayout(packagelistlayout, 1)
         self.setLayout(mainlayout)
+    
+    def enableRefresh(self):
+        """
+        enableRefresh()
+        
+        Enable widget data refresh
+        """
+        self.refreshtimer.start(10000)
+    
+    def disableRefresh(self):
+        """
+        disableRefresh()
+        
+        Disable widget data refresh
+        """
+        self.refreshtimer.stop()
     
     #
     # Slots
@@ -674,9 +842,10 @@ class BSWidget(QtGui.QWidget):
         
         Refresh the package lists to show results for the specified project
         """
+        self.disableRefresh()
         self.projectresultsthread.project = project
         self.projectresultsthread.start()
-    
+
     def updatePackageLists(self):
         """
         updatePackageLists()
@@ -690,7 +859,8 @@ class BSWidget(QtGui.QWidget):
             for column in range(tab['model'].columnCount()):
                 tab['view'].resizeColumnToContents(column)
             self.projecttab.setTabText(self.tabs.index(tab), "%s (%d)" % (tab['name'], tab['model'].rowCount()))
-        self.refreshtimer.start()
+        if self.viewable:
+            self.enableRefresh()
 
     def projectSelected(self, modelindex):
         """
@@ -712,7 +882,6 @@ class BSWidget(QtGui.QWidget):
         Refresh the package lists from a timer signal
         """
         if self.currentproject:
-            self.refreshtimer.stop()
             self.refreshPackageLists(self.currentproject)
 
     def refreshPackageInfo(self, modelindex):
@@ -825,7 +994,7 @@ class BSWidget(QtGui.QWidget):
             log_chunk = self.buildlogthread.log_chunk
             self.buildlogthread.offset += len(log_chunk)
             self.packageinfo.append(log_chunk.strip())
-            if not len(log_chunk) == 0:
+            if not len(log_chunk) == 0 and self.viewable:
                 self.streamtimer.start(1000)
         else:
             self.packageinfo.setPlainText(self.buildlogthread.log_chunk)
@@ -851,17 +1020,112 @@ class BSWidget(QtGui.QWidget):
             for column in range(tab['model'].columnCount()):
                 tab['view'].resizeColumnToContents(column)
             self.projecttab.setTabText(self.tabs.index(tab), "%s (%d)" % (tab['name'], tab['model'].rowCount()))
+
+
+class WorkerWidget(QtGui.QWidget):
+    """
+    WorkerWidget(bs, cfg)
+    
+    Build Service worker viewer widget. bs is a BuildService object and cfg is a ConfigParser object
+    """
+    def __init__(self, bs, cfg):
+        QtGui.QWidget.__init__(self)
+        self.viewable = False
         
+        # BuildService object
+        self.bs = bs
+        
+        # Config object
+        self.cfg = cfg
+        
+        # Worker tabs
+        self.workertab = QtGui.QTabWidget()
+
+        self.tabs = []
+        
+        for tabname in ('All', 'Building', 'Idle'):
+            tab = {'name': tabname}
+            tab['view'] = QtGui.QTreeView()
+            tab['view'].setRootIsDecorated(False)
+            if tabname == 'All':
+                tab['model'] = AllWorkerModel()
+            else:
+                tab['model'] = FilteredWorkerModel(tabname.lower())
+            tab['view'].setModel(tab['model'])
+            self.workertab.addTab(tab['view'], tabname)
+            self.tabs.append(tab)
+
+        # Worker refresh
+        self.refreshtimer = QtCore.QTimer()
+        QtCore.QObject.connect(self.refreshtimer, QtCore.SIGNAL("timeout()"), self.refreshWorkerLists)
+        self.workerstatusthread = WorkerStatusThread(self.bs)
+        QtCore.QObject.connect(self.workerstatusthread, QtCore.SIGNAL("finished()"), self.updateWorkerLists)
+
+        # Layout
+        mainlayout = QtGui.QVBoxLayout()
+        mainlayout.addWidget(self.workertab)
+        self.setLayout(mainlayout)
+
+    def enableRefresh(self):
+        """
+        enableRefresh()
+        
+        Enable widget data refresh
+        """
+        self.refreshtimer.start(10000)
+    
+    def disableRefresh(self):
+        """
+        disableRefresh()
+        
+        Disable widget data refresh
+        """
+        self.refreshtimer.stop()
+
+    def setApiurl(self, apiurl):
+        """
+        setApiurl(apiurl)
+        
+        Set the buildservice API URL
+        """
+        self.bs.apiurl = apiurl
+        self.refreshWorkerLists()
+
+    def refreshWorkerLists(self):
+        """
+        refreshWorkerLists()
+        
+        Refresh the worker lists
+        """
+        self.disableRefresh()
+        self.workerstatusthread.start()
+    
+    def updateWorkerLists(self):
+        """
+        updateWorkerLists()
+        
+        Update worker lists from result in self.workerstatusthread
+        """
+        workers = self.workerstatusthread.workers
+        for tab in self.tabs:
+            tab['model'].setWorkers(workers)
+            for column in range(tab['model'].columnCount()):
+                tab['view'].resizeColumnToContents(column)
+            self.workertab.setTabText(self.tabs.index(tab), "%s (%d)" % (tab['name'], tab['model'].rowCount()))
+        if self.viewable:
+            self.enableRefresh()
+
 
 class ApiSelection:
     """
-    ApiSelection(apiurl, bsw)
+    ApiSelection(apiurl, bsw, ww)
     
-    Allows the selection of an apiurl for BSWidget bsw
+    Allows the selection of an apiurl for BSWidget bsw and WorkerWidget ww
     """
-    def __init__(self, apiurl, bsw):
+    def __init__(self, apiurl, bsw, ww):
        self.apiurl = apiurl
        self.bsw = bsw
+       self.ww = ww
        
     def selected(self):
         """
@@ -870,6 +1134,7 @@ class ApiSelection:
         Set apiurl of the BSWidget to that represented by this object
         """
         self.bsw.setApiurl(self.apiurl)
+        self.ww.setApiurl(self.apiurl)
 
 class ConfigureDialog(QtGui.QDialog):
     """
@@ -999,9 +1264,15 @@ class MainWindow(QtGui.QMainWindow):
         if self.cfg.has_option('persistence', 'apiurl'):
             self.bs.apiurl = self.cfg.get('persistence', 'apiurl')
 
-        # Central widget
+        # Central widgets
+        self.maintabwidget = QtGui.QTabWidget()
         self.bsw = BSWidget(self.bs, self.cfg)
-        self.setCentralWidget(self.bsw)
+        self.maintabwidget.addTab(self.bsw, "Projects")
+        self.ww = WorkerWidget(self.bs, self.cfg)
+        self.maintabwidget.addTab(self.ww, "Workers")
+        self.setCentralWidget(self.maintabwidget)
+        self.connect(self.maintabwidget, QtCore.SIGNAL('currentChanged(int)'), self.mainTabSelected)
+        self.bsw.enableRefresh()
 
         # Menu bar
         menubar = self.menuBar()
@@ -1019,7 +1290,7 @@ class MainWindow(QtGui.QMainWindow):
             action = QtGui.QAction(apiurl, self)
             action.setStatusTip('Set server to %s' % apiurl)
             server.addAction(action)
-            apiselection = ApiSelection(apiurl, self.bsw)
+            apiselection = ApiSelection(apiurl, self.bsw, self.ww)
             self.apiselections.append(apiselection)
             self.connect(action, QtCore.SIGNAL('triggered()'), apiselection.selected)
         
@@ -1073,6 +1344,20 @@ class MainWindow(QtGui.QMainWindow):
         ret = dialog.exec_()
         if ret:
             self.cfg.set('general', 'autoscroll', str(bool(dialog.autoscrollcheckbox.checkState())))
+    
+    def mainTabSelected(self, tabidx):
+        """
+        mainTabSelected(tabidx)
+        
+        Enable refresh for new main tab and disable for others
+        """
+        for (idx, widget) in enumerate((self.bsw, self.ww)):
+            if idx == tabidx:
+                widget.viewable = True
+                widget.enableRefresh()
+            else:
+                widget.viewable = False
+                widget.disableRefresh()
     
     def closeEvent(self, event):
         """
