@@ -4,7 +4,7 @@ from distutils.core import setup
 long_description = "An openSUSE Build Service client that focuses on package build results"
 
 setup(name             = "yabsc",
-      version	       = "0.6",
+      version	       = "0.7",
       description      = "Yet Another Build Service Client",
       long_description = long_description,
       author           = "James Oakley",
