@@ -1042,10 +1042,7 @@ class MainWindow(QtGui.QMainWindow):
         ret = dialog.exec_()
 
         if ret:
-            for c in dialog.headers:
-                print checkState2bool(c['checkbox'].checkState())
             columns = [c['index'] for c in dialog.headers if checkState2bool(c['checkbox'].checkState())]
-            print columns
             separator = dialog.separatormap[str(dialog.sepcombo.currentText())]
 
             name = ("%s-%s.txt") % (self.bsw.currentproject, tab['name'].lower())
