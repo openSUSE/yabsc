@@ -1272,6 +1272,7 @@ class MainWindow(QtGui.QMainWindow):
         self.maintabwidget.addTab(self.ww, "Workers")
         self.setCentralWidget(self.maintabwidget)
         self.connect(self.maintabwidget, QtCore.SIGNAL('currentChanged(int)'), self.mainTabSelected)
+        self.bsw.viewable = True
         self.bsw.enableRefresh()
 
         # Menu bar
