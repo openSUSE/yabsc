@@ -32,6 +32,7 @@ import urlparse
 import xml.etree.cElementTree as ElementTree
 from PyQt4 import QtGui, QtCore
 from osc import conf, core
+import SubmitRequestWidget
 
 defaultconfig = {'general': {'autoscroll': False},
                  'persistence': {'size': '900,725'}}
@@ -209,6 +210,33 @@ class BuildService(QtCore.QObject):
                  'status': 'idle'}
             workerstatus.append(d)
         return workerstatus
+
+    def getSubmitRequests(self):
+        """
+        getSubmitRequests() -> list of dicts
+        
+        """
+        url = core.makeurl(self.apiurl, ['search', 'request', '?match=submit'])
+        f = core.http_GET(url)
+        tree = ElementTree.parse(f).getroot()
+        submitrequests = []
+        for sr in tree.findall('request'):
+            if sr.get('type') != "submit":
+                continue
+
+            d = {'id': sr.get('id')}
+            sb = sr.findall('submit')[0]
+            src = sb.findall('source')[0]
+            d['srcproject'] = src.get('project')
+            d['srcpackage'] = src.get('package')
+            dst = sb.findall('target')[0]
+            d['dstproject'] = dst.get('project')
+            d['dstpackage'] = dst.get('package')
+            d['state'] = sr.findall('state')[0].get('name')
+
+            submitrequests.append(d)
+        return submitrequests
+
 
 
 #
@@ -1270,6 +1298,8 @@ class MainWindow(QtGui.QMainWindow):
         self.maintabwidget.addTab(self.bsw, "Projects")
         self.ww = WorkerWidget(self.bs, self.cfg)
         self.maintabwidget.addTab(self.ww, "Workers")
+        self.srw = SubmitRequestWidget.SubmitRequestWidget(self.bs, self.cfg)
+        self.maintabwidget.addTab(self.srw, "Submit Requests")
         self.setCentralWidget(self.maintabwidget)
         self.connect(self.maintabwidget, QtCore.SIGNAL('currentChanged(int)'), self.mainTabSelected)
         self.bsw.viewable = True
@@ -1352,7 +1382,7 @@ class MainWindow(QtGui.QMainWindow):
         
         Enable refresh for new main tab and disable for others
         """
-        for (idx, widget) in enumerate((self.bsw, self.ww)):
+        for (idx, widget) in enumerate((self.bsw, self.ww, self.srw)):
             if idx == tabidx:
                 widget.viewable = True
                 widget.enableRefresh()
