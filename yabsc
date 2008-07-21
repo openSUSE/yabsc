@@ -313,7 +313,7 @@ class AllResultModel(QtCore.QAbstractItemModel):
                 return QtCore.QVariant(QtGui.QColor(QtCore.Qt.blue))
             if txt in ("disabled",):
                 return QtCore.QVariant(QtGui.QColor(QtCore.Qt.gray))
-            if txt in ("expansion error", "failed"):
+            if txt in ("expansion error", "failed", "broken"):
                 return QtCore.QVariant(QtGui.QColor(QtCore.Qt.red))
         elif role == QtCore.Qt.BackgroundRole:
             if txt in ("building", "scheduled"):
