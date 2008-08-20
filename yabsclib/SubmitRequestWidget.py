@@ -27,6 +27,7 @@ class AllSubmitModel(QtCore.QAbstractItemModel):
     def __init__(self, parent):
         QtCore.QAbstractItemModel.__init__(self)
         self.workers = []
+        self.srs = []
         self.columnmap = ('id', 'state', 'srcproject', 'srcpackage', 'dstproject', 'dstpackage', 'comment')
     
     def setSubmitRequests(self, srs):
