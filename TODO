@@ -3,7 +3,6 @@ General
 
 Results
   - Make packagename column persistent when scrolling horizontally
-  - Show binaries in package results
   - Add watched packages directly
   - Trigger rebuilds
 

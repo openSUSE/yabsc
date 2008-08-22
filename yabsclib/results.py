@@ -18,6 +18,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+import os
 from PyQt4 import QtGui, QtCore
 
 #
@@ -387,7 +388,7 @@ class ResultWidget(QtGui.QWidget):
         self.packageinfo = QtGui.QTextBrowser()
         self.packageinfo.setReadOnly(True)
         self.packageinfo.setOpenLinks(False)
-        QtCore.QObject.connect(self.packageinfo, QtCore.SIGNAL("anchorClicked(const QUrl&)"), self.viewBuildOutput)
+        QtCore.QObject.connect(self.packageinfo, QtCore.SIGNAL("anchorClicked(const QUrl&)"), self.infoClick)
         self.packagestatusthread = PackageStatusThread(self.bs)
         QtCore.QObject.connect(self.packagestatusthread, QtCore.SIGNAL("finished()"), self.updatePackageInfo)
 
@@ -544,7 +545,7 @@ class ResultWidget(QtGui.QWidget):
                 statuscode = self.resultmodel._data(row, column)
                 if statuscode in ("succeeded", "building", "failed"):
                     target = self.resultmodel.targets[column-1]
-                    self.viewBuildOutput(QtCore.QUrl('%s,%s' % (target, package)))
+                    self.viewBuildOutput(target, package)
                     return
         self.packagestatusthread.project = self.currentproject
         self.packagestatusthread.package = package
@@ -558,9 +559,7 @@ class ResultWidget(QtGui.QWidget):
         """
         package = self.packagestatusthread.package
         pitext = "<h2>%s</h2>" % package
-        # Results
-        #pitext += "<h3>Results:</h3><table>"
-        pitext += "<table>"
+        pitext += "<table width='90%'>"
         status = self.packagestatusthread.status
         for target in sorted(status.keys()):
             statustext = status[target]
@@ -577,28 +576,74 @@ class ResultWidget(QtGui.QWidget):
                 color = "black"
             pitext += "<tr><td><b>%s</b></td><td><font color='%s'><b>" % (target, color)
             if code in ('succeeded', 'building', 'failed'):
-                pitext += "<a href='%s,%s'>%s</a>" % (target, package, statustext)
+                pitext += "<a href='buildlog,%s,%s'>%s</a>" % (target, package, statustext)
             else:
                 pitext += statustext
-            pitext += "</b></font></td></tr>"
+            pitext += "</b></font></td><td><a href='binaries,%s,%s'><b>binaries</b></a></td></tr>" % (target, package)
         pitext += "</table>"
-#        binaries = self.bs.getBinaryList(self.currentproject, target, package)
-#        if binaries:
-#            pitext += "<b>Binaries:</b><br/>"
-#            for binary in binaries:
-#                pitext += "%s<br/>" % binary
+
+        self.packageinfo.setWordWrapMode(QtGui.QTextOption.WordWrap)
+        self.packageinfo.setText(pitext)
+
+    def infoClick(self, url):
+        """
+        infoClick(url)
+        
+        Handle url clicks in the package info view
+        """
+        args = str(url.toString()).split(',')
+        if args[0] == 'buildlog':
+            self.viewBuildOutput(*args[1:])
+        elif args[0] == 'binaries':
+            self.viewBinaries(*args[1:])
+        elif args[0] == 'getbinary':
+            self.getBinary(*args[1:])
+
+    def viewBinaries(self, target, package):
+        """
+        viewBinaries(target, package)
+        
+        View binaries for target and package
+        """
+        pitext = "<h2>%s binaries for %s</h2>" % (package, target)
+        binaries = self.bs.getBinaryList(self.currentproject, target, package)
+        if binaries:
+            pitext += "<table>"
+            for binary in sorted(binaries):
+                pitext += "<tr><td><a href='getbinary,%s,%s,%s'>%s</a></td></tr>" % (target, package, binary, binary)
+            pitext += "</table>"
+        else:
+            pitext += "<b>No binaries</b>"
 
         self.packageinfo.setWordWrapMode(QtGui.QTextOption.WordWrap)
         self.packageinfo.setText(pitext)
     
-    def viewBuildOutput(self, arg):
+    def getBinary(self, target, package, file):
         """
-        viewBuildOutput(arg)
+        getBinary(target, file)
         
-        Show build output for the "target/package" specified in arg. If the package is currently
+        Save 'file' in 'target' to a local path
+        """
+        path = QtGui.QFileDialog.getSaveFileName(self,
+                                                 "Save binary",
+                                                 os.path.join(os.environ['HOME'], file),
+                                                 "RPM Files (*.rpm);;All Files (*.*)")
+        if path:
+            try:
+                self.bs.getBinary(self.currentproject, target, package, file, path)
+            except Exception, e:
+                QtGui.QMessageBox.critical(self, "Binary Save Error",
+                                                 "Could not save binary to %s: %s" % (path, e))
+                raise
+
+
+    def viewBuildOutput(self, target, package):
+        """
+        viewBuildOutput(target, package)
+        
+        Show build output for target and package. If the package is currently
         building, stream the output until it is finished
         """
-        (target, package) = str(arg.toString()).split(',')
         self.packageinfo.clear()
         # For some reason, the font is set to whatever the calling link had. Argh
         self.packageinfo.setCurrentFont(QtGui.QFont("Bitstream Vera Sans Mono", 7))

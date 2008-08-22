@@ -138,7 +138,16 @@ class BuildService(QtCore.QObject):
         Returns a list of binaries for a particular target and package
         """
         (repo, arch) = target.split('/')
-        core.get_binarylist(self.apiurl, project, repo, arch, package)
+        return core.get_binarylist(self.apiurl, project, repo, arch, package)
+    
+    def getBinary(self, project, target, package, file, path):
+        """
+        getBinary(project, target, file, path)
+        
+        Get binary 'file' for 'project' and 'target' and save it as 'path'
+        """
+        (repo, arch) = target.split('/')
+        core.get_binary_file(self.apiurl, project, repo, arch, file, targetfilename=path, package=package)
         
     def getBuildLog(self, project, target, package, offset=0):
         """
