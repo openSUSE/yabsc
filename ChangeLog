@@ -1,3 +1,8 @@
+SVN
+  * Restructured models and views to be more efficient
+  * Added a submit request view
+  * Added a scheduled packages tab to the result view
+
 0.7 - Mar 13 2008
   * Views can be exported to text files. Patch from Michal Vyskocil
     <mvyskocil@suse.cz>
