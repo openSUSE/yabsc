@@ -310,6 +310,48 @@ class BuildLogThread(QtCore.QThread):
     def run(self):
         self.log_chunk = self.bs.getBuildLog(self.project, self.target, self.package, self.offset)
 
+
+class ProjectTreeView(QtGui.QTreeView):
+    """
+    ProjectTreeView(bs, parent=None)
+    
+    The project tree view. 'bs' must be a BuildService object
+    """
+    def __init__(self, bs, parent=None):
+        self.bs = bs
+        QtGui.QTreeView.__init__(self, parent)
+    
+    def contextMenuEvent(self, event):
+        """
+        contextMenuEvent(event)
+        
+        Context menu event handler
+        """
+        index = self.indexAt(event.pos())
+        project = self.model().data(index, QtCore.Qt.DisplayRole).toString()
+        if project:
+            menu = QtGui.QMenu()
+            if project in self.bs.getWatchedProjectList():
+                action = QtGui.QAction('Unwatch %s' % project, self)
+                actiontype = 'unwatch'
+            else:
+                action = QtGui.QAction('Watch %s' % project, self)
+                actiontype = 'watch'
+            menu.addAction(action)
+            selectedaction = menu.exec_(self.mapToGlobal(event.pos()))
+            
+            if selectedaction:
+                try:
+                    if actiontype == 'watch':
+                        self.bs.watchProject(project)
+                    else:
+                        self.bs.unwatchProject(project)
+                except Exception, e:
+                    QtGui.QMessageBox.critical(self, "Watchlist Error",
+                               "Could not %s project %s: %s" % (actiontype, project, e))
+                    raise
+                self.emit(QtCore.SIGNAL("watchedProjectsChanged()"))
+
 #
 # Result widget
 #
@@ -342,7 +384,7 @@ class ResultWidget(QtGui.QWidget):
         QtCore.QObject.connect(self.projectlistselector, QtCore.SIGNAL("currentIndexChanged(const QString&)"), self.refreshProjectList)
 
         # The project list
-        self.projecttreeview = QtGui.QTreeView()
+        self.projecttreeview = ProjectTreeView(self.bs)
         self.projecttreeview.setRootIsDecorated(False)
         self.projectlistmodel = QtGui.QStandardItemModel(0, 1, self)
         self.projectlistmodel.setHeaderData(0, QtCore.Qt.Horizontal, QtCore.QVariant("Project"))
@@ -350,6 +392,7 @@ class ResultWidget(QtGui.QWidget):
         self.refreshProjectList()
         self.projecttreeview.setModel(self.projectlistmodel)
         QtCore.QObject.connect(self.projecttreeview, QtCore.SIGNAL("clicked(const QModelIndex&)"), self.projectSelected)
+        QtCore.QObject.connect(self.projecttreeview, QtCore.SIGNAL("watchedProjectsChanged()"), self.refreshProjectList)
         QtCore.QObject.connect(self.projectlistthread, QtCore.SIGNAL("finished()"), self.updateProjectList)
         
         # Filter widgets

@@ -3,6 +3,8 @@ SVN
   * Added a submit request view
   * Added a scheduled packages tab to the result view
   * Resulting package binaries can be viewed and downloaded
+  * Projects can be added to and removed from the watchlist by right-clicking
+    them in the project list
 
 0.7 - Mar 13 2008
   * Views can be exported to text files. Patch from Michal Vyskocil

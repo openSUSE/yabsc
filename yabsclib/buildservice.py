@@ -18,11 +18,43 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+import os
+import tempfile
 import time
 import urlparse
 import xml.etree.cElementTree as ElementTree
 from PyQt4 import QtCore
 from osc import conf, core
+
+class metafile:
+    """
+    metafile(url, input, change_is_required=False, file_ext='.xml')
+    
+    Implementation on osc.core.metafile that does not print to stdout
+    """
+    def __init__(self, url, input, change_is_required=False, file_ext='.xml'):
+        self.url = url
+        self.change_is_required = change_is_required
+
+        (fd, self.filename) = tempfile.mkstemp(prefix = 'osc_metafile.', suffix = file_ext, dir = '/tmp')
+
+        f = os.fdopen(fd, 'w')
+        f.write(''.join(input))
+        f.close()
+
+        self.hash_orig = core.dgst(self.filename)
+
+    def sync(self):
+        hash = core.dgst(self.filename)
+        if self.change_is_required == True and hash == self.hash_orig:
+            os.unlink(self.filename)
+            return True
+
+        # don't do any exception handling... it's up to the caller what to do in case
+        # of an exception
+        core.http_PUT(self.url, file=self.filename)
+        os.unlink(self.filename)
+        return True
 
 class BuildService(QtCore.QObject):
     "Interface to Build Service API"
@@ -76,6 +108,43 @@ class BuildService(QtCore.QObject):
         if not homeproject in projects and homeproject in self.getProjectList():
             projects.append(homeproject)
         return projects
+    
+    def watchProject(self, project):
+        """
+        watchProject(project)
+        
+        Watch project
+        """
+        username = self.getUserName()
+        data = core.meta_exists('user', username, create_new=False, apiurl=self.apiurl)
+        url = core.make_meta_url('user', username, self.apiurl)
+
+        person = ElementTree.fromstring(''.join(data))
+        watchlist = person.find('watchlist')
+        ElementTree.SubElement(watchlist, 'project', name=str(project))
+        
+        f = metafile(url, ElementTree.tostring(person))
+        f.sync()
+
+    def unwatchProject(self, project):
+        """
+        watchProject(project)
+        
+        Watch project
+        """
+        username = self.getUserName()
+        data = core.meta_exists('user', username, create_new=False, apiurl=self.apiurl)
+        url = core.make_meta_url('user', username, self.apiurl)
+
+        person = ElementTree.fromstring(''.join(data))
+        watchlist = person.find('watchlist')
+        for node in watchlist:
+            if node.get('name') == str(project):
+                watchlist.remove(node)
+                break
+        
+        f = metafile(url, ElementTree.tostring(person))        
+        f.sync()
 
     def getResults(self, project):
         """getResults(project) -> (dict, list)
