@@ -168,7 +168,11 @@ class ResultModel(QtCore.QAbstractItemModel):
         
         Return the number of packages with result in one of the visible targets
         """
-        return len([p for p in self.visiblepackages if self.packageHasResult(p, result)])
+        packages = [p for p in self.packages if self.packagefilter in p]
+        result = result.lower()
+        if result == 'all':
+            return len(packages)
+        return len([p for p in packages if self.packageHasResult(p, result)])
 
     def updateVisiblePackages(self, reset=True):
         """
@@ -181,7 +185,7 @@ class ResultModel(QtCore.QAbstractItemModel):
 
         # Apply filter string
         if self.packagefilter:
-            self.visiblepackages = [p for p in self.visiblepackages if filterstring in p]
+            self.visiblepackages = [p for p in self.visiblepackages if self.packagefilter in p]
         
         # Apply result filter
         if self.resultfilter:
@@ -377,7 +381,7 @@ class ResultWidget(QtGui.QWidget):
         self.refreshtimer = QtCore.QTimer()
         QtCore.QObject.connect(self.refreshtimer, QtCore.SIGNAL("timeout()"), self.timerRefresh)
         self.projectresultsthread = ProjectResultsThread(self.bs)
-        QtCore.QObject.connect(self.projectresultsthread, QtCore.SIGNAL("finished()"), self.updatePackageLists)
+        QtCore.QObject.connect(self.projectresultsthread, QtCore.SIGNAL("finished()"), self.updatePackageList)
 
         # Package info
         self.packageinfo = QtGui.QTextBrowser()
@@ -487,9 +491,9 @@ class ResultWidget(QtGui.QWidget):
         self.projectresultsthread.project = project
         self.projectresultsthread.start()
 
-    def updatePackageLists(self):
+    def updatePackageList(self):
         """
-        updatePackageLists()
+        updatePackageList()
         
         Update package list data from result in self.projectresultsthread
         """
@@ -531,17 +535,15 @@ class ResultWidget(QtGui.QWidget):
         """
         # If we're streaming a log file, stop
         self.streamtimer.stop()
-        tab = self.tabs[self.projecttab.currentIndex()]
-        model = tab['model']
-        tabname = tab['name']
+        tabname = self.tabs[self.resulttab.currentIndex()]
         column = modelindex.column()
         row = modelindex.row()
-        package = model.packageFromRow(row)
+        package = self.resultmodel.packageFromRow(row)
         if tabname == 'All':
             if column > 0:
-                statuscode = model._data(row, column)
+                statuscode = self.resultmodel._data(row, column)
                 if statuscode in ("succeeded", "building", "failed"):
-                    target = model.targets[column-1]
+                    target = self.resultmodel.targets[column-1]
                     self.viewBuildOutput(QtCore.QUrl('%s,%s' % (target, package)))
                     return
         self.packagestatusthread.project = self.currentproject
@@ -560,7 +562,7 @@ class ResultWidget(QtGui.QWidget):
         #pitext += "<h3>Results:</h3><table>"
         pitext += "<table>"
         status = self.packagestatusthread.status
-        for target in status.keys():
+        for target in sorted(status.keys()):
             statustext = status[target]
             code = statustext.split(':')[0]
             if code == "succeeded":
@@ -669,6 +671,11 @@ class ResultWidget(QtGui.QWidget):
             self.updateResultCounts()
 
     def resizeColumns(self):
+        """
+        resizeColumns()
+        
+        Resize columns to fit contents
+        """
         for column in range(self.resultmodel.columnCount()):
             self.resultview.resizeColumnToContents(column)
 
@@ -680,51 +687,3 @@ class ResultWidget(QtGui.QWidget):
         """
         for tab in self.tabs:
             self.resulttab.setTabText(self.tabs.index(tab), "%s (%d)" % (tab, self.resultmodel.numPackagesWithResult(tab)))
-
-
-
-class ExportDialog(QtGui.QDialog):
-    """
-    ExportDialog()
-    
-    Yabsc export dialog
-    """
-    def __init__(self, model, parent=None):
-        QtGui.QDialog.__init__(self, parent)
-
-        self.setWindowTitle("Yabsc Export")
-
-        layout = QtGui.QVBoxLayout()
-
-        self.headers = []
-        for i in xrange(model.columnCount()):
-            name = str(model.headerData(i, 0, QtCore.Qt.DisplayRole).toString())
-            checkbox = QtGui.QCheckBox('Include column "%s"' % name)
-            checkbox.setCheckState(bool2checkState(True))
-            self.headers.append({'name': name, 'index': i, 'checkbox': checkbox})
-
-            layout.addWidget(checkbox)
-        
-        seplayout = QtGui.QHBoxLayout()
-        seplabel = QtGui.QLabel('Separator')
-        seplayout.addWidget(seplabel)
-        self.sepcombo = QtGui.QComboBox()
-        self.sepcombo.addItems(['Tab', 'Comma', 'Space'])
-        self.separatormap = {'Tab': '\t',
-                             'Comma': ',',
-                             'Space': ' '}
-        seplayout.addWidget(self.sepcombo)
-        layout.addLayout(seplayout)
-        
-        buttonlayout = QtGui.QHBoxLayout()
-        buttonlayout.addStretch(1)
-        ok = QtGui.QPushButton('Ok')
-        self.connect(ok, QtCore.SIGNAL('clicked()'), self.accept)
-        buttonlayout.addWidget(ok)
-        cancel = QtGui.QPushButton('Cancel')
-        self.connect(cancel, QtCore.SIGNAL('clicked()'), self.reject)
-        buttonlayout.addWidget(cancel)
-        
-        layout.addLayout(buttonlayout)
-        
-        self.setLayout(layout)

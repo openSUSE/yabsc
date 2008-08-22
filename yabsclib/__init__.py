@@ -23,6 +23,7 @@ import os
 from PyQt4 import QtGui, QtCore
 from osc import conf
 
+import util
 import buildservice
 import results
 import workers
@@ -50,6 +51,52 @@ class ApiSelection:
         """
         for widget in self.widgets:
             widget.setApiurl(self.apiurl)
+
+class ExportDialog(QtGui.QDialog):
+    """
+    ExportDialog()
+    
+    Yabsc export dialog
+    """
+    def __init__(self, model, parent=None):
+        QtGui.QDialog.__init__(self, parent)
+
+        self.setWindowTitle("Yabsc Export")
+
+        layout = QtGui.QVBoxLayout()
+
+        self.headers = []
+        for i in xrange(model.columnCount()):
+            name = str(model.headerData(i, 0, QtCore.Qt.DisplayRole).toString())
+            checkbox = QtGui.QCheckBox('Include column "%s"' % name)
+            checkbox.setCheckState(util.bool2checkState(True))
+            self.headers.append({'name': name, 'index': i, 'checkbox': checkbox})
+
+            layout.addWidget(checkbox)
+        
+        seplayout = QtGui.QHBoxLayout()
+        seplabel = QtGui.QLabel('Separator')
+        seplayout.addWidget(seplabel)
+        self.sepcombo = QtGui.QComboBox()
+        self.sepcombo.addItems(['Tab', 'Comma', 'Space'])
+        self.separatormap = {'Tab': '\t',
+                             'Comma': ',',
+                             'Space': ' '}
+        seplayout.addWidget(self.sepcombo)
+        layout.addLayout(seplayout)
+        
+        buttonlayout = QtGui.QHBoxLayout()
+        buttonlayout.addStretch(1)
+        ok = QtGui.QPushButton('Ok')
+        self.connect(ok, QtCore.SIGNAL('clicked()'), self.accept)
+        buttonlayout.addWidget(ok)
+        cancel = QtGui.QPushButton('Cancel')
+        self.connect(cancel, QtCore.SIGNAL('clicked()'), self.reject)
+        buttonlayout.addWidget(cancel)
+        
+        layout.addLayout(buttonlayout)
+        
+        self.setLayout(layout)
 
 
 class ConfigureDialog(QtGui.QDialog):
@@ -178,17 +225,16 @@ class MainWindow(QtGui.QMainWindow):
 
         Export current view to file
         """
-        tab = self.rw.tabs[self.rw.projecttab.currentIndex()]
-        model = tab['model']
+        tab = self.rw.tabs[self.rw.resulttab.currentIndex()]
 
-        dialog = ExportDialog(model)
+        dialog = ExportDialog(self.rw.resultmodel)
         ret = dialog.exec_()
 
         if ret:
-            columns = [c['index'] for c in dialog.headers if checkState2bool(c['checkbox'].checkState())]
+            columns = [c['index'] for c in dialog.headers if util.checkState2bool(c['checkbox'].checkState())]
             separator = dialog.separatormap[str(dialog.sepcombo.currentText())]
 
-            name = ("%s-%s.txt") % (self.rw.currentproject, tab['name'].lower())
+            name = ("%s-%s.txt") % (self.rw.currentproject, tab.lower())
 
             filename = QtGui.QFileDialog.getSaveFileName(self,
                                                          "Export",
@@ -198,8 +244,8 @@ class MainWindow(QtGui.QMainWindow):
                 try:
                     fout = open(str(filename), 'w')
 
-                    for row in xrange(model.rowCount()):
-                        fout.write(separator.join(map(lambda col: model._data(row, col), columns)) + '\n')
+                    for row in xrange(self.rw.resultmodel.rowCount()):
+                        fout.write(separator.join(map(lambda col: self.rw.resultmodel._data(row, col), columns)) + '\n')
                     fout.close()
                 except IOError, e:
                     QtGui.QMessageBox.critical(self, "Export Error",

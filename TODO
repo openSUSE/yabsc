@@ -1,0 +1,14 @@
+General
+  - Create application icon and desktop file
+
+Results
+  - Make packagename column persistent when scrolling horizontally
+  - Show binaries in package results
+  - Add watched packages directly
+  - Trigger rebuilds
+
+Workers
+  - View running build logs
+  - Color-coded job time column 
+  - Option to only see builds for watched projects
+  - Show number of all and watched packages in the wait queue

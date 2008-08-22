@@ -44,7 +44,7 @@ class WorkerModel(QtCore.QAbstractItemModel):
         Set the workers list of the model, as returned from BuildService.getWorkerStatus()
         """
         self.workers = workers
-        self.reset()
+        self.updateVisibleWorkers()
     
     def _data(self, row, column):
         """
@@ -141,6 +141,17 @@ class WorkerModel(QtCore.QAbstractItemModel):
         else:
             self.visibleworkers = [w for w in self.workers if w['status'] == status]
         self.reset()
+
+    def numWorkersWithStatus(self, status):
+        """
+        numWorkersWithStatus(status)
+        
+        Return the number of workers with status
+        """
+        status = status.lower()
+        if status == 'all':
+            return len(self.workers)
+        return len([w for w in self.workers if w['status'] == status])
 
 
 #
@@ -243,10 +254,26 @@ class WorkerWidget(QtGui.QWidget):
         Update worker lists from result in self.workerstatusthread
         """
         workers = self.workerstatusthread.workers
-        for tab in self.tabs:
-            tab['model'].setWorkers(workers)
-            for column in range(tab['model'].columnCount()):
-                tab['view'].resizeColumnToContents(column)
-            self.workertab.setTabText(self.tabs.index(tab), "%s (%d)" % (tab['name'], tab['model'].rowCount()))
+        self.workermodel.setWorkers(workers)
+        self.resizeColumns()
+        self.updateWorkerCounts()
         if self.viewable:
             self.enableRefresh()
+
+    def resizeColumns(self):
+        """
+        resizeColumns()
+        
+        Resize columns to fit contents
+        """
+        for column in range(self.workermodel.columnCount()):
+            self.workerview.resizeColumnToContents(column)
+
+    def updateWorkerCounts(self):
+        """
+        updateWorkerCounts()
+        
+        Update counts for worker tabs
+        """
+        for tab in self.tabs:
+            self.workertab.setTabText(self.tabs.index(tab), "%s (%d)" % (tab, self.workermodel.numWorkersWithStatus(tab)))

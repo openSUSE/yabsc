@@ -1,0 +1,32 @@
+0.7 - Mar 13 2008
+  * Views can be exported to text files. Patch from Michal Vyskocil
+    <mvyskocil@suse.cz>
+  * Added a worker status tab
+
+0.6 - Mar 07 2008
+  * Window size persistence
+  * Project selection persistence
+  * Configurable autoscroll for finished build logs
+
+0.5 - Mar 06 2008
+  * Go directly to build log if an appropriate status is clicked in the All
+    tab
+  * Show details for blocked and building packages in the package info view
+
+0.4 - Mar 05 2008
+  * Incremental package search
+  * Build target filtering
+
+0.3 - Mar 04 2008
+  * API calls are now made in threads to avoid blocking the UI
+  * Status codes in the "All" tab are now colorised, thanks to a patch from 
+    Dirk Mueller
+
+0.2 - Feb 28 2008
+  * The "All" tab now shows results for all project targets
+  * The views now use more flexible custom data models
+  * The code size has actually decreased by 30%
+
+0.1 - Feb 28 2008
+  * Initial release
+
