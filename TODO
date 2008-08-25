@@ -5,5 +5,4 @@ Results
   - Make packagename column persistent when scrolling horizontally
 
 Workers
-  - Option to only see builds for watched projects
   - Show number of all and watched packages in the wait queue

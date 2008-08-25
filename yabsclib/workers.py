@@ -27,15 +27,18 @@ from results import BuildLogThread
 # Data model
 #
 class WorkerModel(QtCore.QAbstractItemModel):
-    """WorkerModel()
+    """WorkerModel(bs)
     
-    Model for workers
+    Model for workers. 'bs' must be a BuildService object
     """
-    def __init__(self):
+    def __init__(self, bs):
         QtCore.QAbstractItemModel.__init__(self)
+        self.bs = bs
         self.workers = []
         self.visibleworkers = []
         self.statusfilter = ""
+        self.packagefilter = ""
+        self.projectfilter = ""
         self.columnmap = ('id', 'hostarch', 'status', 'project', 'package', 'target', 'started')
     
     def setWorkers(self, workers):
@@ -137,6 +140,16 @@ class WorkerModel(QtCore.QAbstractItemModel):
         if self.statusfilter:
             self.visibleworkers = [w for w in self.visibleworkers if w['status'] == self.statusfilter]
         
+        if self.packagefilter:
+            self.visibleworkers = [w for w in self.visibleworkers if 'package' in w and self.packagefilter in w['package']]
+        
+        if self.projectfilter:
+            if self.projectfilter == 'Watched':
+                watchedprojects = self.bs.getWatchedProjectList()
+                self.visibleworkers = [w for w in self.visibleworkers if 'project' in w and w['project'] in watchedprojects]
+            else:
+                self.visibleworkers = [w for w in self.visibleworkers if 'project' in w and w['project'] == self.projectfilter]
+    
         if reset:
             self.reset()
 
@@ -149,11 +162,30 @@ class WorkerModel(QtCore.QAbstractItemModel):
         """
         status = status.lower()
         self.statusfilter = status
-        if status:
-            self.visibleworkers = [w for w in self.workers if w['status'] == status]
+        self.updateVisibleWorkers()
+        
+    def setPackageFilter(self, filterstring):
+        """
+        setPackageFilter(filterstring)
+        
+        Filter workers building packages containing 'filterstring'
+        """
+        self.packagefilter = filterstring
+        self.updateVisibleWorkers()
+        
+    def setProjectFilter(self, project):
+        """
+        setProjectFilter(project)
+        
+        Filter worker jobs for 'project'. If 'project' is 'All', all projects
+        are shown. If 'project' is 'Watched', all watched projects are
+        shown
+        """
+        if project == 'All':
+            self.projectfilter = ""
         else:
-            self.visibleworkers = self.workers
-        self.reset()
+            self.projectfilter = project
+        self.updateVisibleWorkers()
 
     def numWorkersWithStatus(self, status):
         """
@@ -200,7 +232,18 @@ class WorkerWidget(QtGui.QWidget):
         
         # Config object
         self.cfg = cfg
-        
+
+        # Filter widgets
+        searchlabel = QtGui.QLabel("Search")
+        self.searchedit = QtGui.QLineEdit()
+        QtCore.QObject.connect(self.searchedit, QtCore.SIGNAL("textChanged(const QString&)"), self.filterPackages)
+        projectlabel = QtGui.QLabel("Target")
+        self.projectselector = QtGui.QComboBox()
+        self.projectselector.setSizeAdjustPolicy(QtGui.QComboBox.AdjustToContents)
+        self.projectselector.addItem("All")
+        self.projectselector.addItem("Watched")
+        QtCore.QObject.connect(self.projectselector, QtCore.SIGNAL("currentIndexChanged(const QString&)"), self.filterProjects)
+
         # Worker tabs
         self.workertab = QtGui.QTabBar()
         QtCore.QObject.connect(self.workertab, QtCore.SIGNAL("currentChanged(int)"), self.filterWorkers)
@@ -213,7 +256,7 @@ class WorkerWidget(QtGui.QWidget):
         # Status view
         self.workerview = QtGui.QTreeView()
         self.workerview.setRootIsDecorated(False)
-        self.workermodel = WorkerModel()
+        self.workermodel = WorkerModel(self.bs)
         self.workerview.setModel(self.workermodel)
         QtCore.QObject.connect(self.workerview, QtCore.SIGNAL("clicked(const QModelIndex&)"), self.watchBuildLog)
 
@@ -235,7 +278,14 @@ class WorkerWidget(QtGui.QWidget):
         QtCore.QObject.connect(self.buildlogthread, QtCore.SIGNAL("finished()"), self.updateBuildOutput)
 
         # Layout
+        filterlayout = QtGui.QHBoxLayout()
+        filterlayout.addWidget(searchlabel)
+        filterlayout.addWidget(self.searchedit)
+        filterlayout.addWidget(projectlabel)
+        filterlayout.addWidget(self.projectselector)
+        
         mainlayout = QtGui.QVBoxLayout()
+        mainlayout.addLayout(filterlayout)
         mainlayout.addWidget(self.workertab)
         mainlayout.addWidget(self.workerview)
         mainlayout.addWidget(self.logpane)
@@ -283,12 +333,32 @@ class WorkerWidget(QtGui.QWidget):
         """
         workers = self.workerstatusthread.workers
         self.workermodel.setWorkers(workers)
+        
+        # Update project filter dropbox
+        projects = {}
+        for worker in workers:
+            if 'project' in worker:
+                projects[worker['project']] = None
+        
+        currentprojectfilter = str(self.projectselector.currentText())
+        self.projectselector.clear()
+        self.projectselector.addItem("All")
+        self.projectselector.addItem("Watched")
+        self.projectselector.addItems(sorted(projects.keys()))
+        if currentprojectfilter in projects.keys() or currentprojectfilter == 'Watched':
+            self.projectselector.setCurrentIndex(self.projectselector.findText(currentprojectfilter))
+        
         self.resizeColumns()
         self.updateWorkerCounts()
         if self.viewable:
             self.enableRefresh()
 
     def filterWorkers(self, index):
+        """
+        filterWorkers(index)
+        
+        Filter workers by status, specified by tab index
+        """
         if self.tabs:
             if index == 0:
                 self.workermodel.setStatusFilter()
@@ -296,6 +366,24 @@ class WorkerWidget(QtGui.QWidget):
                 self.workermodel.setStatusFilter(self.tabs[index].lower())
             self.resizeColumns()
             self.updateWorkerCounts()
+    
+    def filterPackages(self, filterstring):
+        """
+        filterPackages(filterstring)
+        
+        Filter worker jobs for packages matching 'filterstring'
+        """
+        self.workermodel.setPackageFilter(str(filterstring))
+    
+    def filterProjects(self, project):
+        """
+        filterProjects(project)
+        
+        Filter worker jobs for 'project'. If 'project' is 'All', all projects
+        are shown. If 'project' is 'Watched', all watched projects are
+        shown
+        """
+        self.workermodel.setProjectFilter(str(project))
 
     def resizeColumns(self):
         """

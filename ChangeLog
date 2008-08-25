@@ -10,6 +10,7 @@ SVN
   * Can now view running build logs in the worker tab
   * Worker jobs running for longer than 1 hour are colour-coded like in the
     webclient
+  * Added filter options for worker lists
 
 0.7 - Mar 13 2008
   * Views can be exported to text files. Patch from Michal Vyskocil
