@@ -135,11 +135,12 @@ class WorkerModel(QtCore.QAbstractItemModel):
         Only show workers with a specific status. If status is undefined or
         empty, filter is disabled
         """
+        status = status.lower()
         self.statusfilter = status
-        if status == "All":
-            self.visibleworkers = self.workers
-        else:
+        if status:
             self.visibleworkers = [w for w in self.workers if w['status'] == status]
+        else:
+            self.visibleworkers = self.workers
         self.reset()
 
     def numWorkersWithStatus(self, status):
@@ -190,27 +191,42 @@ class WorkerWidget(QtGui.QWidget):
         
         # Worker tabs
         self.workertab = QtGui.QTabBar()
+        QtCore.QObject.connect(self.workertab, QtCore.SIGNAL("currentChanged(int)"), self.filterWorkers)
 
         self.tabs = []
         for tabname in ('All', 'Building', 'Idle'):
             self.workertab.addTab(tabname)
             self.tabs.append(tabname)
         
+        # Status view
         self.workerview = QtGui.QTreeView()
         self.workerview.setRootIsDecorated(False)
         self.workermodel = WorkerModel()
         self.workerview.setModel(self.workermodel)
+        QtCore.QObject.connect(self.workerview, QtCore.SIGNAL("clicked(const QModelIndex&)"), self.watchBuildLog)
+
+        # Build log
+        self.logpane = QtGui.QTextBrowser()
+        self.logpane.setReadOnly(True)
+        self.logpane.setOpenLinks(False)
 
         # Worker refresh
         self.refreshtimer = QtCore.QTimer()
-        QtCore.QObject.connect(self.refreshtimer, QtCore.SIGNAL("timeout()"), self.refreshWorkerLists)
+        QtCore.QObject.connect(self.refreshtimer, QtCore.SIGNAL("timeout()"), self.refreshWorkerList)
         self.workerstatusthread = WorkerStatusThread(self.bs)
-        QtCore.QObject.connect(self.workerstatusthread, QtCore.SIGNAL("finished()"), self.updateWorkerLists)
+        QtCore.QObject.connect(self.workerstatusthread, QtCore.SIGNAL("finished()"), self.updateWorkerList)
+        
+        # Build log refresh
+        self.streamtimer = QtCore.QTimer()
+        QtCore.QObject.connect(self.streamtimer, QtCore.SIGNAL("timeout()"), self.requestBuildOutput)
+        self.buildlogthread = BuildLogThread(self.bs)
+        QtCore.QObject.connect(self.buildlogthread, QtCore.SIGNAL("finished()"), self.updateBuildOutput)
 
         # Layout
         mainlayout = QtGui.QVBoxLayout()
         mainlayout.addWidget(self.workertab)
         mainlayout.addWidget(self.workerview)
+        mainlayout.addWidget(self.logpane)
         self.setLayout(mainlayout)
 
     def enableRefresh(self):
@@ -236,20 +252,20 @@ class WorkerWidget(QtGui.QWidget):
         Set the buildservice API URL
         """
         self.bs.apiurl = apiurl
-        self.refreshWorkerLists()
+        self.refreshWorkerList()
 
-    def refreshWorkerLists(self):
+    def refreshWorkerList(self):
         """
-        refreshWorkerLists()
+        refreshWorkerList()
         
         Refresh the worker lists
         """
         self.disableRefresh()
         self.workerstatusthread.start()
     
-    def updateWorkerLists(self):
+    def updateWorkerList(self):
         """
-        updateWorkerLists()
+        updateWorkerList()
         
         Update worker lists from result in self.workerstatusthread
         """
@@ -259,6 +275,15 @@ class WorkerWidget(QtGui.QWidget):
         self.updateWorkerCounts()
         if self.viewable:
             self.enableRefresh()
+
+    def filterWorkers(self, index):
+        if self.tabs:
+            if index == 0:
+                self.workermodel.setStatusFilter()
+            else:
+                self.workermodel.setStatusFilter(self.tabs[index].lower())
+            self.resizeColumns()
+            self.updateWorkerCounts()
 
     def resizeColumns(self):
         """
@@ -277,3 +302,51 @@ class WorkerWidget(QtGui.QWidget):
         """
         for tab in self.tabs:
             self.workertab.setTabText(self.tabs.index(tab), "%s (%d)" % (tab, self.workermodel.numWorkersWithStatus(tab)))
+
+    def requestBuildOutput(self):
+        """
+        requestBuildOutput()
+        
+        Send request to update streaming build output, based on existing buildlogthread parameters
+        """
+        self.buildlogthread.start()
+    
+    def updateBuildOutput(self):
+        """
+        updateBuildOutput()
+        
+        Update the build output
+        """
+        self.streamtimer.stop()
+        log_chunk = self.buildlogthread.log_chunk
+        self.buildlogthread.offset += len(log_chunk)
+        self.logpane.append(log_chunk.strip())
+        if not len(log_chunk) == 0 and self.viewable:
+            self.streamtimer.start(1000)
+
+    def watchBuildLog(self, modelindex):
+        """
+        watchBuildLog(modelindex)
+        
+        Watch the build log for the package built by the worker represented by
+        QModelIndex modelindex
+        """
+        # If we're streaming a log file, stop
+        self.streamtimer.stop()
+        row = modelindex.row()
+        project = self.workermodel.visibleworkers[row]['project']
+        package = self.workermodel.visibleworkers[row]['package']
+        target = self.workermodel.visibleworkers[row]['target']
+
+        self.logpane.clear()
+        self.logpane.setCurrentFont(QtGui.QFont("Bitstream Vera Sans Mono", 7))
+        self.logpane.setTextColor(QtGui.QColor('black'))
+        self.logpane.setWordWrapMode(QtGui.QTextOption.NoWrap)
+        
+        self.buildlogthread.project = project
+        self.buildlogthread.target = target
+        self.buildlogthread.package = package
+        self.buildlogthread.offset = 0
+        self.buildlogthread.live = True
+
+        self.requestBuildOutput()

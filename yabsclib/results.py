@@ -668,13 +668,12 @@ class ResultWidget(QtGui.QWidget):
         column = modelindex.column()
         row = modelindex.row()
         package = self.resultmodel.packageFromRow(row)
-        if tabname == 'All':
-            if column > 0:
-                statuscode = self.resultmodel._data(row, column)
-                if statuscode in ("succeeded", "building", "failed"):
-                    target = self.resultmodel.targets[column-1]
-                    self.viewBuildOutput(target, package)
-                    return
+        if column > 0:
+            statuscode = self.resultmodel._data(row, column)
+            if statuscode in ("succeeded", "building", "failed"):
+                target = self.resultmodel.targets[column-1]
+                self.viewBuildOutput(target, package)
+                return
         self.packagestatusthread.project = self.currentproject
         self.packagestatusthread.package = package
         self.packagestatusthread.start()
