@@ -3,7 +3,6 @@ General
 
 Results
   - Make packagename column persistent when scrolling horizontally
-  - Trigger rebuilds
 
 Workers
   - View running build logs

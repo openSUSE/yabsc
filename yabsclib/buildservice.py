@@ -281,3 +281,17 @@ class BuildService(QtCore.QObject):
 
             submitrequests.append(d)
         return submitrequests
+    
+    def rebuild(self, project, package, target=None, code=None):
+        """
+        rebuild(project, package, target, code=None)
+
+        Rebuild 'package' in 'project' for 'target'. If 'code' is specified,
+        all targets with that code will be rebuilt
+        """
+        if target:
+            (repo, arch) = target.split('/')
+        else:
+            repo = None
+            arch = None
+        return core.rebuild(self.apiurl, project, package, repo, arch, code)

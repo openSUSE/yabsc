@@ -55,6 +55,35 @@ class ResultModel(QtCore.QAbstractItemModel):
         self.updateVisibleTargets(reset=False)
         self.reset()
     
+    def _targetIndexFromName(self, target):
+        """
+        _targetIndexFromName(target)
+        
+        Returns the column index of the named target in the raw result data
+        """
+        return self.targets.index(target)
+    
+    def targetFromColumn(self, column):
+        """
+        targetFromColumn(column)
+        
+        Returns the target represented by the visible 'column'
+        """
+        if column > 0:
+            return self.targets[self._targetIndexFromName(self.visibletargets[column-1])]
+    
+    def getPackageTargetsWithStatus(self, package, status):
+        """
+        getPackageTargetsWithStatus(package, status) -> list
+        
+        Returns a list of failed targets for a package
+        """
+        targets = []
+        for (i, target) in enumerate(self.results[package]):
+            if target == status.lower():
+                targets.append(self.targets[i])
+        return targets
+
     def _data(self, row, column):
         """
         _data(row, column) -> str
@@ -63,10 +92,11 @@ class ResultModel(QtCore.QAbstractItemModel):
         columns are result codes
         """
         package = self.visiblepackages[row]
+        target = self.visibletargets[column-1]
         if column == 0:
             return package
         else:
-            return self.results[package][column-1]
+            return self.results[package][self._targetIndexFromName(target)]
     
     def packageFromRow(self, row):
         """
@@ -352,6 +382,61 @@ class ProjectTreeView(QtGui.QTreeView):
                     raise
                 self.emit(QtCore.SIGNAL("watchedProjectsChanged()"))
 
+class ResultTreeView(QtGui.QTreeView):
+    """
+    ResultTreeView(bs, parent=None)
+    
+    The result tree view. 'parent' must contain a BuildService object, 'bs' and
+    the current project, 'currentproject'
+    """
+    def __init__(self, parent=None):
+        self.parent = parent
+        QtGui.QTreeView.__init__(self, parent)
+    
+    def contextMenuEvent(self, event):
+        """
+        contextMenuEvent(event)
+        
+        Context menu event handler
+        """
+        index = self.indexAt(event.pos())
+        packageindex = self.model().createIndex(index.row(), 0)
+        packagename = str(self.model().data(packageindex, QtCore.Qt.DisplayRole).toString())
+        target = self.model().targetFromColumn(index.column())
+        failedtargets = self.model().getPackageTargetsWithStatus(packagename, 'failed')
+        
+        if packagename:
+            menu = QtGui.QMenu()
+            
+            rebuildtargetaction = None
+            rebuildallfailedaction = None
+            
+            if target:
+                rebuildtargetaction = QtGui.QAction('Rebuild %s for %s' % (packagename, target), self)
+                menu.addAction(rebuildtargetaction)
+                
+            if failedtargets:
+                rebuildallfailedaction = QtGui.QAction('Rebuild %s for all failed targets' % packagename, self)
+                menu.addAction(rebuildallfailedaction)
+        
+            rebuildallaction = QtGui.QAction('Rebuild %s for all targets' % packagename, self)
+            menu.addAction(rebuildallaction)
+            
+            selectedaction = menu.exec_(self.mapToGlobal(event.pos()))
+            
+            if selectedaction:
+                try:
+                    if selectedaction == rebuildtargetaction:
+                        self.parent.bs.rebuild(self.parent.currentproject, packagename, target=target)
+                    elif selectedaction == rebuildallfailedaction:
+                        self.parent.bs.rebuild(self.parent.currentproject, packagename, code='failed')
+                    elif selectedaction == rebuildallaction:
+                        self.parent.bs.rebuild(self.parent.currentproject, packagename)
+                except Exception, e:
+                    QtGui.QMessageBox.critical(self, "Package Rebuild Error",
+                               "Could not rebuild package %s: %s" % (packagename, e))
+                    raise
+
 #
 # Result widget
 #
@@ -414,7 +499,7 @@ class ResultWidget(QtGui.QWidget):
             self.tabs.append(tabname)
 
         # Project results
-        self.resultview = QtGui.QTreeView()
+        self.resultview = ResultTreeView(self)
         self.resultview.setRootIsDecorated(False)
         self.resultmodel = ResultModel()
         self.resultview.setModel(self.resultmodel)

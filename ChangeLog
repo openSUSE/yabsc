@@ -5,6 +5,8 @@ SVN
   * Resulting package binaries can be viewed and downloaded
   * Projects can be added to and removed from the watchlist by right-clicking
     them in the project list
+  * Rebuilds can now be triggered directly in the result view by right clicking
+    on the package, or a specific result
 
 0.7 - Mar 13 2008
   * Views can be exported to text files. Patch from Michal Vyskocil
