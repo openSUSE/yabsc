@@ -255,6 +255,21 @@ class BuildService(QtCore.QObject):
                  'status': 'idle'}
             workerstatus.append(d)
         return workerstatus
+    
+    def getWaitStats(self):
+        """
+        getWaitStats() -> list
+        
+        Returns the number of jobs in the wait queue as a list of (arch, count)
+        pairs
+        """
+        url = core.makeurl(self.apiurl, ['build', '_workerstatus'])
+        f = core.http_GET(url)
+        tree = ElementTree.parse(f).getroot()
+        stats = []
+        for worker in tree.findall('waiting'):
+            stats.append((worker.get('arch'), int(worker.get('jobs'))))
+        return stats
 
     def getSubmitRequests(self):
         """

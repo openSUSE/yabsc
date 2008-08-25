@@ -5,4 +5,4 @@ Results
   - Make packagename column persistent when scrolling horizontally
 
 Workers
-  - Show number of all and watched packages in the wait queue
+  - Show number of watched packages in the wait queue (requires api support)

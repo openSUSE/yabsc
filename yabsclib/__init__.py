@@ -129,6 +129,21 @@ class ConfigureDialog(QtGui.QDialog):
         self.setLayout(layout)
 
 
+class WaitStatsThread(QtCore.QThread):
+    """
+    WaitStatsThread(bs)
+    
+    Thread for retrieving wait stats. Requires a BuildService object
+    """
+    def __init__(self, bs):
+        QtCore.QThread.__init__(self)
+        self.bs = bs
+        self.stats = []
+    
+    def run(self):
+        self.stats = self.bs.getWaitStats()
+
+
 class MainWindow(QtGui.QMainWindow):
     """
     MainWindow()
@@ -173,12 +188,20 @@ class MainWindow(QtGui.QMainWindow):
         self.connect(exit, QtCore.SIGNAL('triggered()'), QtCore.SLOT('close()'))
 
         # Status bar
-        self.statusBar()
+        self.statslabel = QtGui.QLabel()
+        self.statusBar().addPermanentWidget(self.statslabel)
         
         # BuildService object
         self.bs = buildservice.BuildService()
         if self.cfg.has_option('persistence', 'apiurl'):
             self.bs.apiurl = self.cfg.get('persistence', 'apiurl')
+        
+        # Wait stats
+        self.waitstatstimer = QtCore.QTimer()
+        QtCore.QObject.connect(self.waitstatstimer, QtCore.SIGNAL("timeout()"), self.refreshWaitStats)
+        self.waitstatsthread = WaitStatsThread(self.bs)
+        QtCore.QObject.connect(self.waitstatsthread, QtCore.SIGNAL("finished()"), self.updateWaitStats)
+        self.waitstatstimer.start(10000)
 
         # Central widgets
         self.maintabwidget = QtGui.QTabWidget()
@@ -296,3 +319,24 @@ class MainWindow(QtGui.QMainWindow):
             QtGui.QMessageBox.critical(self, "Configuration File Error",
                                        "Could not write configuration file %s: %s" % (self.cfgfilename, e))
         QtGui.QMainWindow.closeEvent(self, event)
+
+    def refreshWaitStats(self):
+        """
+        refreshWaitStats()
+        
+        Refresh wait stats
+        """
+        self.waitstatstimer.stop()
+        self.waitstatsthread.start()
+    
+    def updateWaitStats(self):
+        """
+        updateWaitStats()
+        
+        Update wait stats in the status bar from the last result
+        """
+        s = "Waiting"
+        for (arch, count) in self.waitstatsthread.stats:
+            s += "  | <b>%s</b> - <b>%s</b>" % (arch, count)
+        self.statslabel.setText(s)
+        self.waitstatstimer.start()

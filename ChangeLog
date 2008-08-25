@@ -11,6 +11,8 @@ SVN
   * Worker jobs running for longer than 1 hour are colour-coded like in the
     webclient
   * Added filter options for worker lists
+  * Displays number of packages in the wait queue for each arch in the status
+    bar
 
 0.7 - Mar 13 2008
   * Views can be exported to text files. Patch from Michal Vyskocil
