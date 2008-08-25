@@ -8,6 +8,8 @@ SVN
   * Rebuilds can now be triggered directly in the result view by right clicking
     on the package, or a specific result
   * Can now view running build logs in the worker tab
+  * Worker jobs running for longer than 1 hour are colour-coded like in the
+    webclient
 
 0.7 - Mar 13 2008
   * Views can be exported to text files. Patch from Michal Vyskocil

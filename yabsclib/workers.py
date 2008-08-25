@@ -18,6 +18,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
+import time
 from PyQt4 import QtGui, QtCore
 
 from results import BuildLogThread
@@ -67,6 +68,17 @@ class WorkerModel(QtCore.QAbstractItemModel):
         """
         if index.isValid() and role == QtCore.Qt.DisplayRole:
             return QtCore.QVariant(self._data(index.row(), index.column()))
+        elif role == QtCore.Qt.BackgroundRole:
+            worker = self.visibleworkers[index.row()]
+            if 'started' in worker:
+                # Use the colour scheme from the webclient
+                deadline = time.time() - 3600
+                starttime = time.mktime(time.strptime(worker['started'], '%a %b %d %H:%M:%S %Y'))
+                if starttime < deadline:
+                    n = (abs((starttime - deadline))/60)
+                    if n < 240:
+                        return QtCore.QVariant(QtGui.QColor(255, n, 0))
+
         return QtCore.QVariant()
 
     def headerData(self, section, orientation, role):
@@ -334,19 +346,21 @@ class WorkerWidget(QtGui.QWidget):
         # If we're streaming a log file, stop
         self.streamtimer.stop()
         row = modelindex.row()
-        project = self.workermodel.visibleworkers[row]['project']
-        package = self.workermodel.visibleworkers[row]['package']
-        target = self.workermodel.visibleworkers[row]['target']
-
         self.logpane.clear()
-        self.logpane.setCurrentFont(QtGui.QFont("Bitstream Vera Sans Mono", 7))
-        self.logpane.setTextColor(QtGui.QColor('black'))
-        self.logpane.setWordWrapMode(QtGui.QTextOption.NoWrap)
         
-        self.buildlogthread.project = project
-        self.buildlogthread.target = target
-        self.buildlogthread.package = package
-        self.buildlogthread.offset = 0
-        self.buildlogthread.live = True
+        if 'project' in self.workermodel.visibleworkers[row]:
+            project = self.workermodel.visibleworkers[row]['project']
+            package = self.workermodel.visibleworkers[row]['package']
+            target = self.workermodel.visibleworkers[row]['target']
 
-        self.requestBuildOutput()
+            self.logpane.setCurrentFont(QtGui.QFont("Bitstream Vera Sans Mono", 7))
+            self.logpane.setTextColor(QtGui.QColor('black'))
+            self.logpane.setWordWrapMode(QtGui.QTextOption.NoWrap)
+            
+            self.buildlogthread.project = project
+            self.buildlogthread.target = target
+            self.buildlogthread.package = package
+            self.buildlogthread.offset = 0
+            self.buildlogthread.live = True
+
+            self.requestBuildOutput()

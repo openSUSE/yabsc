@@ -5,6 +5,5 @@ Results
   - Make packagename column persistent when scrolling horizontally
 
 Workers
-  - Color-coded job time column 
   - Option to only see builds for watched projects
   - Show number of all and watched packages in the wait queue
