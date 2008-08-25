@@ -1,6 +1,6 @@
-SVN
+0.8 - Aug 25 2008
   * Restructured models and views to be more efficient
-  * Added a submit request view
+  * Added a submit request view (Thanks to Dirk Mueller <dmueller@suse.de>)
   * Added a scheduled packages tab to the result view
   * Resulting package binaries can be viewed and downloaded
   * Projects can be added to and removed from the watchlist by right-clicking
