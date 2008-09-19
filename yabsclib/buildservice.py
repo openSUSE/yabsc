@@ -73,7 +73,7 @@ class BuildService(QtCore.QObject):
         Get list of API servers configured in .oscrc
         """
         apiservers = []
-        for host in conf.config['auth_dict'].keys():
+        for host in conf.config['api_host_options'].keys():
             apiurl = "%s://%s" % (conf.config['scheme'], host)
         return apiservers
     
@@ -83,7 +83,7 @@ class BuildService(QtCore.QObject):
         Get the user name associated with the current API server
         """
         hostname = urlparse.urlparse(self.apiurl)[1]
-        return conf.config['auth_dict'][hostname]['user']
+        return conf.config['api_host_options'][hostname]['user']
     
     def getProjectList(self):
         """getProjectList() -> list

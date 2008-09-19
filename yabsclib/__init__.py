@@ -227,7 +227,7 @@ class MainWindow(QtGui.QMainWindow):
         
         server = menubar.addMenu('&Server')
         self.apiselections = []
-        for host in conf.config['auth_dict'].keys():
+        for host in conf.config['api_host_options'].keys():
             apiurl = "%s://%s" % (conf.config['scheme'], host)
             action = QtGui.QAction(apiurl, self)
             action.setStatusTip('Set server to %s' % apiurl)
