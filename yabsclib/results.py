@@ -361,26 +361,36 @@ class ProjectTreeView(QtGui.QTreeView):
         project = self.model().data(index, QtCore.Qt.DisplayRole).toString()
         if project:
             menu = QtGui.QMenu()
+            
+            watchaction = None
+            unwatchaction = None
+            
+            abortaction = QtGui.QAction('Abort all builds for %s' % project, self)
+            menu.addAction(abortaction)
+            
             if project in self.bs.getWatchedProjectList():
-                action = QtGui.QAction('Unwatch %s' % project, self)
-                actiontype = 'unwatch'
+                unwatchaction = QtGui.QAction('Unwatch %s' % project, self)
+                menu.addAction(unwatchaction)
             else:
-                action = QtGui.QAction('Watch %s' % project, self)
-                actiontype = 'watch'
-            menu.addAction(action)
+                watchaction = QtGui.QAction('Watch %s' % project, self)
+                menu.addAction(watchaction)
+            
             selectedaction = menu.exec_(self.mapToGlobal(event.pos()))
             
             if selectedaction:
                 try:
-                    if actiontype == 'watch':
+                    if selectedaction == abortaction:
+                        self.bs.abortBuild(str(project))
+                    elif selectedaction == watchaction:
                         self.bs.watchProject(project)
-                    else:
+                    elif selectedaction == unwatchaction:
                         self.bs.unwatchProject(project)
                 except Exception, e:
-                    QtGui.QMessageBox.critical(self, "Watchlist Error",
-                               "Could not %s project %s: %s" % (actiontype, project, e))
+                    QtGui.QMessageBox.critical(self, "Error",
+                               "Could not perform action on project %s: %s" % (project, e))
                     raise
-                self.emit(QtCore.SIGNAL("watchedProjectsChanged()"))
+                if selectedaction in (watchaction, unwatchaction):
+                    self.emit(QtCore.SIGNAL("watchedProjectsChanged()"))
 
 class ResultTreeView(QtGui.QTreeView):
     """
@@ -404,12 +414,16 @@ class ResultTreeView(QtGui.QTreeView):
         packagename = str(self.model().data(packageindex, QtCore.Qt.DisplayRole).toString())
         target = self.model().targetFromColumn(index.column())
         failedtargets = self.model().getPackageTargetsWithStatus(packagename, 'failed')
+        buildingtargets = self.model().getPackageTargetsWithStatus(packagename, 'building')
+        scheduledtargets = self.model().getPackageTargetsWithStatus(packagename, 'scheduled')
         
         if packagename:
             menu = QtGui.QMenu()
             
             rebuildtargetaction = None
             rebuildallfailedaction = None
+            aborttargetaction = None
+            abortallaction = None
             
             if target:
                 rebuildtargetaction = QtGui.QAction('Rebuild %s for %s' % (packagename, target), self)
@@ -418,10 +432,18 @@ class ResultTreeView(QtGui.QTreeView):
             if failedtargets:
                 rebuildallfailedaction = QtGui.QAction('Rebuild %s for all failed targets' % packagename, self)
                 menu.addAction(rebuildallfailedaction)
-        
+
             rebuildallaction = QtGui.QAction('Rebuild %s for all targets' % packagename, self)
             menu.addAction(rebuildallaction)
+
+            if target and (target in buildingtargets or target in scheduledtargets):
+                aborttargetaction = QtGui.QAction('Abort build of %s for %s' % (packagename, target), self)
+                menu.addAction(aborttargetaction)
             
+            if buildingtargets or scheduledtargets:
+                abortallaction = QtGui.QAction('Abort all builds of %s' % packagename, self)
+                menu.addAction(abortallaction)
+
             selectedaction = menu.exec_(self.mapToGlobal(event.pos()))
             
             if selectedaction:
@@ -432,9 +454,13 @@ class ResultTreeView(QtGui.QTreeView):
                         self.parent.bs.rebuild(self.parent.currentproject, packagename, code='failed')
                     elif selectedaction == rebuildallaction:
                         self.parent.bs.rebuild(self.parent.currentproject, packagename)
+                    elif selectedaction == aborttargetaction:
+                        self.parent.bs.abortBuild(self.parent.currentproject, packagename, target)                        
+                    elif selectedaction == abortallaction:
+                        self.parent.bs.abortBuild(self.parent.currentproject, packagename)
                 except Exception, e:
-                    QtGui.QMessageBox.critical(self, "Package Rebuild Error",
-                               "Could not rebuild package %s: %s" % (packagename, e))
+                    QtGui.QMessageBox.critical(self, "Error",
+                               "Could not perform action on package %s: %s" % (packagename, e))
                     raise
 
 #

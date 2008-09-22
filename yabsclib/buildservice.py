@@ -311,3 +311,16 @@ class BuildService(QtCore.QObject):
             repo = None
             arch = None
         return core.rebuild(self.apiurl, project, package, repo, arch, code)
+    
+    def abortBuild(self, project, package=None, target=None):
+        """
+        abort(project, package=None, target=None)
+
+        Abort build of a package or all packages in a project
+        """
+        if target:
+            (repo, arch) = target.split('/')
+        else:
+            repo = None
+            arch = None
+        return core.abortbuild(self.apiurl, project, package, arch, repo)
