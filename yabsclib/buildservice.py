@@ -229,8 +229,6 @@ class BuildService(QtCore.QObject):
         (repo, arch) = target.split('/')
         u = core.makeurl(self.apiurl, ['build', project, repo, arch, package, '_log?nostream=1&start=%s' % offset])
         return core.http_GET(u).read()
-
-        #return core.get_buildlog(self.apiurl, project, package, repo, arch, offset)
     
     def getWorkerStatus(self):
         """
