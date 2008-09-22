@@ -217,6 +217,51 @@ class WorkerStatusThread(QtCore.QThread):
         self.workers = self.bs.getWorkerStatus()
 
 
+class WorkerTreeView(QtGui.QTreeView):
+    """
+    WorkerTreeView(bs, parent=None)
+    
+    The worker tree view. 'bs' must be a BuildService object
+    """
+    def __init__(self, bs, parent=None):
+        self.bs = bs
+        QtGui.QTreeView.__init__(self, parent)
+    
+    def contextMenuEvent(self, event):
+        """
+        contextMenuEvent(event)
+        
+        Context menu event handler
+        """
+        index = self.indexAt(event.pos())
+        statusindex = self.model().createIndex(index.row(), 2)
+        status = str(self.model().data(statusindex, QtCore.Qt.DisplayRole).toString())
+
+        if status == 'building':
+            projectindex = self.model().createIndex(index.row(), 3)
+            project = str(self.model().data(projectindex, QtCore.Qt.DisplayRole).toString())
+            packageindex = self.model().createIndex(index.row(), 4)
+            package = str(self.model().data(packageindex, QtCore.Qt.DisplayRole).toString())
+            targetindex = self.model().createIndex(index.row(), 5)
+            target = str(self.model().data(targetindex, QtCore.Qt.DisplayRole).toString())
+
+            menu = QtGui.QMenu()
+            
+            abortaction = QtGui.QAction('Abort build', self)
+            menu.addAction(abortaction)
+            
+            selectedaction = menu.exec_(self.mapToGlobal(event.pos()))
+            
+            if selectedaction:
+                try:
+                    if selectedaction == abortaction:
+                        self.bs.abortBuild(str(project), str(package), str(target))
+                except Exception, e:
+                    QtGui.QMessageBox.critical(self, "Error",
+                               "Could not perform action on project %s: %s" % (project, e))
+                    raise
+
+
 class WorkerWidget(QtGui.QWidget):
     """
     WorkerWidget(bs, cfg)
@@ -254,7 +299,7 @@ class WorkerWidget(QtGui.QWidget):
             self.tabs.append(tabname)
         
         # Status view
-        self.workerview = QtGui.QTreeView()
+        self.workerview = WorkerTreeView(self.bs, parent=self)
         self.workerview.setRootIsDecorated(False)
         self.workermodel = WorkerModel(self.bs)
         self.workerview.setModel(self.workermodel)
