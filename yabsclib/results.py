@@ -671,7 +671,7 @@ class ResultWidget(QtGui.QWidget):
         if column > 0:
             statuscode = self.resultmodel._data(row, column)
             if statuscode in ("succeeded", "building", "failed"):
-                target = self.resultmodel.targets[column-1]
+                target = self.resultmodel.visibletargets[column-1]
                 self.viewBuildOutput(target, package)
                 return
         self.packagestatusthread.project = self.currentproject
