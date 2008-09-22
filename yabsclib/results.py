@@ -736,7 +736,9 @@ class ResultWidget(QtGui.QWidget):
             pitext += "<td><a href='buildhistory,%s,%s'><b>buildhistory</b></a></td>" % (target, package)
             pitext += "<td><a href='binaries,%s,%s'><b>binaries</b></a></td></tr>" % (target, package)
         pitext += "</table>"
-
+        
+        pitext += "<p><a href='commitlog,%s'><b>commitlog</b></a></p>" % package
+        
         self.packageinfo.setWordWrapMode(QtGui.QTextOption.WordWrap)
         self.packageinfo.setText(pitext)
 
@@ -755,6 +757,8 @@ class ResultWidget(QtGui.QWidget):
             self.getBinary(*args[1:])
         elif args[0] == 'buildhistory':
             self.viewBuildHistory(*args[1:])
+        elif args[0] == 'commitlog':
+            self.viewCommitLog(*args[1:])
 
     def viewBinaries(self, target, package):
         """
@@ -814,6 +818,23 @@ class ResultWidget(QtGui.QWidget):
         self.packageinfo.setWordWrapMode(QtGui.QTextOption.WordWrap)
         self.packageinfo.setText(pitext)
 
+    def viewCommitLog(self, package):
+        """
+        viewCommitLog(package)
+        
+        View commit log of package
+        """
+        pitext = "<h2>Commit Log of %s</h2>" % package
+        commitlog = self.bs.getCommitLog(self.currentproject, package)
+        
+        if commitlog:            
+            for entry in commitlog:
+                pitext += "<hr/><p>Revision <b>%s</b> - MD5 <b>%s</b> - Version <b>%s</b><br/>Modified <em>%s</em> by <em>%s</em><pre>%s</pre></p>" % entry
+        else:
+            pitext += "<b>No log</b>"
+
+        self.packageinfo.setWordWrapMode(QtGui.QTextOption.WordWrap)
+        self.packageinfo.setText(pitext)
 
     def viewBuildOutput(self, target, package):
         """

@@ -327,7 +327,7 @@ class BuildService(QtCore.QObject):
 
     def getBuildHistory(self, project, package, target):
         """
-        getBuildHistory(project, package, target)
+        getBuildHistory(project, package, target) -> list
         
         Get build history of package for target as a list of tuples of the form
         (time, srcmd5, rev, versrel, bcnt)
@@ -347,4 +347,38 @@ class BuildService(QtCore.QObject):
             t = time.strftime('%Y-%m-%d %H:%M:%S', t)
 
             r.append((t, srcmd5, rev, versrel, bcnt))
+        return r
+
+    def getCommitLog(self, project, package, revision=None):
+        """
+        getCommitLog(project, package, revision=None) -> list
+        
+        Get commit log for package in project. If revision is set, get just the
+        log for that revision.
+        
+        Each log is a tuple of the form (rev, srcmd5, version, time, user,
+        comment)
+        """
+        u = core.makeurl(self.apiurl, ['source', project, package, '_history'])
+        f = core.http_GET(u)
+        root = ElementTree.parse(f).getroot()
+
+        r = []
+        revisions = root.findall('revision')
+        revisions.reverse()
+        for node in revisions:
+            rev = int(node.get('rev'))
+            if revision and rev != int(revision):
+                continue
+            srcmd5 = node.find('srcmd5').text
+            version = node.find('version').text
+            user = node.find('user').text
+            try:
+                comment = node.find('comment').text
+            except:
+                comment = '<no message>'
+            t = time.localtime(int(node.find('time').text))
+            t = time.strftime('%Y-%m-%d %H:%M:%S', t)
+
+            r.append((rev, srcmd5, version, t, user, comment))
         return r
