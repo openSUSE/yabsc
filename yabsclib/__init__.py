@@ -281,7 +281,7 @@ class MainWindow(QtGui.QMainWindow):
         Configure Yabsc
         """
         dialog = ConfigureDialog(self)
-        dialog.autoscrollcheckbox.setCheckState(bool2checkState(self.cfg.getboolean('general', 'autoscroll')))
+        dialog.autoscrollcheckbox.setCheckState(util.bool2checkState(self.cfg.getboolean('general', 'autoscroll')))
         ret = dialog.exec_()
         if ret:
             self.cfg.set('general', 'autoscroll', str(bool(dialog.autoscrollcheckbox.checkState())))
