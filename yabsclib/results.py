@@ -732,7 +732,9 @@ class ResultWidget(QtGui.QWidget):
                 pitext += "<a href='buildlog,%s,%s'>%s</a>" % (target, package, statustext)
             else:
                 pitext += statustext
-            pitext += "</b></font></td><td><a href='binaries,%s,%s'><b>binaries</b></a></td></tr>" % (target, package)
+            pitext += "</b></font></td>"
+            pitext += "<td><a href='buildhistory,%s,%s'><b>buildhistory</b></a></td>" % (target, package)
+            pitext += "<td><a href='binaries,%s,%s'><b>binaries</b></a></td></tr>" % (target, package)
         pitext += "</table>"
 
         self.packageinfo.setWordWrapMode(QtGui.QTextOption.WordWrap)
@@ -751,6 +753,8 @@ class ResultWidget(QtGui.QWidget):
             self.viewBinaries(*args[1:])
         elif args[0] == 'getbinary':
             self.getBinary(*args[1:])
+        elif args[0] == 'buildhistory':
+            self.viewBuildHistory(*args[1:])
 
     def viewBinaries(self, target, package):
         """
@@ -788,6 +792,27 @@ class ResultWidget(QtGui.QWidget):
                 QtGui.QMessageBox.critical(self, "Binary Save Error",
                                                  "Could not save binary to %s: %s" % (path, e))
                 raise
+
+    def viewBuildHistory(self, target, package):
+        """
+        viewBuildHistory(target, package)
+        
+        View build history of package for target
+        """
+        pitext = "<h2>Build History of %s for %s</h2>" % (package, target)
+        history = self.bs.getBuildHistory(self.currentproject, package, target)
+        
+        if history:
+            pitext += "<table width='90%'><tr><td><b>Time</b></td><td><b>Source MD5</b></td><td><b>Revision</b></td><td><b>Version-Release.Buildcount</b></td></tr>"
+            
+            for entry in history:
+                pitext += "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s.%s</td></tr>" % entry
+            pitext += "</table>"
+        else:
+            pitext += "<b>No history</b>"
+
+        self.packageinfo.setWordWrapMode(QtGui.QTextOption.WordWrap)
+        self.packageinfo.setText(pitext)
 
 
     def viewBuildOutput(self, target, package):

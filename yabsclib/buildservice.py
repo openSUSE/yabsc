@@ -324,3 +324,27 @@ class BuildService(QtCore.QObject):
             repo = None
             arch = None
         return core.abortbuild(self.apiurl, project, package, arch, repo)
+
+    def getBuildHistory(self, project, package, target):
+        """
+        getBuildHistory(project, package, target)
+        
+        Get build history of package for target as a list of tuples of the form
+        (time, srcmd5, rev, versrel, bcnt)
+        """
+        (repo, arch) = target.split('/')
+        u = core.makeurl(self.apiurl, ['build', project, repo, arch, package, '_history'])
+        f = core.http_GET(u)
+        root = ElementTree.parse(f).getroot()
+
+        r = []
+        for node in root.findall('entry'):
+            rev = int(node.get('rev'))
+            srcmd5 = node.get('srcmd5')
+            versrel = node.get('versrel')
+            bcnt = int(node.get('bcnt'))
+            t = time.localtime(int(node.get('time')))
+            t = time.strftime('%Y-%m-%d %H:%M:%S', t)
+
+            r.append((t, srcmd5, rev, versrel, bcnt))
+        return r
