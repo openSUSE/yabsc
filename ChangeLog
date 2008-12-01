@@ -1,3 +1,10 @@
+0.9 - Dec 01 2008
+  * Update for OSC API changes
+  * Added build history view
+  * Added commit log view
+  * Running builds can be aborted. Works for individual packages and entire
+    projects
+
 0.8 - Aug 25 2008
   * Restructured models and views to be more efficient
   * Added a submit request view (Thanks to Dirk Mueller <dmueller@suse.de>)

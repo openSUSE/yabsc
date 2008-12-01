@@ -26,6 +26,29 @@ import xml.etree.cElementTree as ElementTree
 from PyQt4 import QtCore
 from osc import conf, core
 
+def flag2bool(flag):
+    """
+    flag2bool(flag) -> Boolean
+    
+    Returns a boolean corresponding to the string 'enable', or 'disable'
+    """
+    if flag == 'enable':
+        return True
+    elif flag == 'disable':
+        return False
+
+def bool2flag(b):
+    """
+    bool2flag(b) -> String
+    
+    Returns 'enable', or 'disable' according to boolean value b
+    """
+    if b == True:
+        return 'enable'
+    elif b == False:
+        return 'disable'
+
+
 class metafile:
     """
     metafile(url, input, change_is_required=False, file_ext='.xml')
@@ -382,3 +405,138 @@ class BuildService(QtCore.QObject):
 
             r.append((rev, srcmd5, version, t, user, comment))
         return r
+    
+    def getProjectMeta(self, project):
+        """
+        getProjectMeta(project) -> string
+        
+        Get XML metadata for project
+        """
+        return ''.join(core.show_project_meta(self.apiurl, project))
+    
+    def getPackageMeta(self, project, package):
+        """
+        getPackageMeta(project, package) -> string
+        
+        Get XML metadata for package in project
+        """
+        return ''.join(core.show_package_meta(self.apiurl, project, package))
+    
+    def projectFlags(self, project):
+        """
+        projectFlags(project) -> ProjectFlags
+        
+        Return a ProjectFlags object for manipulating the flags of project
+        """
+        return ProjectFlags(self, project)
+
+
+class ProjectFlags(object):
+    """
+    ProjectFlags(bs, project)
+    
+    Represents the flags in project through the BuildService object bs
+    """
+    def __init__(self, bs, project):
+        self.bs = bs
+        self.tree = ElementTree.fromstring(self.bs.getProjectMeta(project))
+
+        # The "default" flags, when undefined
+        self.defaultflags = {'build': True,
+                             'publish': True,
+                             'useforbuild': True,
+                             'debuginfo': False}
+
+        # Figure out what arches and repositories are defined
+        self.arches = {}
+        self.repositories = {}
+        
+        # Build individual repository list
+        for repository in self.tree.findall('repository'):
+            repodict = {'arches': {}}
+            self.__init_flags_in_dict(repodict)
+            for arch in repository.findall('arch'):
+                repodict['arches'][arch.text] = {}
+                self.__init_flags_in_dict(repodict['arches'][arch.text])
+                # Add placeholder in global arches
+                self.arches[arch.text] = {}
+            self.repositories[repository.get('name')] = repodict
+        
+        # Initialise flags in global arches
+        for archdict in self.arches.values():
+            self.__init_flags_in_dict(archdict)
+        
+        # A special repository representing the global and global arch flags
+        self.allrepositories = {'arches': self.arches}
+        self.__init_flags_in_dict(self.allrepositories)
+        
+        # Now populate the structures from the xml data
+        for flagtype in ('build', 'publish', 'useforbuild', 'debuginfo'):
+            flagnode = self.tree.find(flagtype)
+            if flagnode:
+                for node in flagnode:
+                    repository = node.get('repository')
+                    arch = node.get('arch')
+                    
+                    if repository and arch:
+                        self.repositories[repository]['arches'][arch][flagtype] = flag2bool(node.tag)
+                    elif repository:
+                        self.repositories[repository][flagtype] = flag2bool(node.tag)
+                    elif arch:
+                        self.arches[flagtype] = flag2bool(node.tag)
+                    else:
+                        self.allrepositories[flagtype] = flag2bool(node.tag)
+
+    def __init_flags_in_dict(self, d):
+        """
+        __init_flags_in_dict(d)
+        
+        Initialize all build flags to None in d
+        """
+        d.update({'build': None,
+                  'publish': None,
+                  'useforbuild': None,
+                  'debuginfo': None})
+    
+    def save(self):
+        """
+        save()
+        
+        Save flags
+        """
+        
+        for flagtype in ('build', 'publish', 'useforbuild', 'debuginfo'):
+            # Clear if set
+            flagnode = self.tree.find(flagtype)
+            if flagnode:
+                self.tree.remove(flagnode)
+            
+            # Generate rule nodes
+            rulenodes = []
+            
+            # globals
+            if self.allrepositories[flagtype] != None:
+                rulenodes.append(ElementTree.Element(bool2flag(self.allrepositories[flagtype])))
+            for arch in self.arches:
+                if self.arches[arch][flagtype] != None:
+                    rulenodes.append(ElementTree.Element(bool2flag(self.arches[arch][flagtype]), arch=arch))
+            
+            # repositories
+            for repository in self.repositories:
+                if self.repositories[repository][flagtype] != None:
+                    rulenodes.append(ElementTree.Element(bool2flag(self.repositories[repository][flagtype]), repository=repository))
+                for arch in self.repositories[repository]['arches']:
+                    if self.repositories[repository]['arches'][arch][flagtype] != None:
+                        rulenodes.append(ElementTree.Element(bool2flag(self.repositories[repository]['arches'][arch][flagtype]), arch=arch, repository=repository))
+        
+            # Add nodes to tree
+            if rulenodes:
+                from pprint import pprint
+                pprint(rulenodes)
+                flagnode = ElementTree.Element(flagtype)
+                self.tree.insert(3, flagnode)
+                for rulenode in rulenodes:
+                    flagnode.append(rulenode)
+
+        print ElementTree.tostring(self.tree)
+    

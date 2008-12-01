@@ -368,6 +368,10 @@ class ProjectTreeView(QtGui.QTreeView):
             abortaction = QtGui.QAction('Abort all builds for %s' % project, self)
             menu.addAction(abortaction)
             
+            # Disable until feature is finished
+            # editflagsaction = QtGui.QAction('Edit flags for %s' % project, self)
+            # menu.addAction(editflagsaction)
+            
             if project in self.bs.getWatchedProjectList():
                 unwatchaction = QtGui.QAction('Unwatch %s' % project, self)
                 menu.addAction(unwatchaction)
@@ -381,6 +385,8 @@ class ProjectTreeView(QtGui.QTreeView):
                 try:
                     if selectedaction == abortaction:
                         self.bs.abortBuild(str(project))
+                    elif selectedaction == editflagsaction:
+                        self.editFlags(project)
                     elif selectedaction == watchaction:
                         self.bs.watchProject(project)
                     elif selectedaction == unwatchaction:
@@ -391,6 +397,18 @@ class ProjectTreeView(QtGui.QTreeView):
                     raise
                 if selectedaction in (watchaction, unwatchaction):
                     self.emit(QtCore.SIGNAL("watchedProjectsChanged()"))
+
+    def editFlags(self, project):
+        """
+        editFlags(project)
+        
+        Edit flags for project
+        """
+        flags = self.bs.projectFlags(project)
+        dialog = ProjectFlagsDialog(project, flags)
+        ret = dialog.exec_()
+        if ret:
+            flags.save()
 
 class ResultTreeView(QtGui.QTreeView):
     """
@@ -462,6 +480,37 @@ class ResultTreeView(QtGui.QTreeView):
                     QtGui.QMessageBox.critical(self, "Error",
                                "Could not perform action on package %s: %s" % (packagename, e))
                     raise
+
+
+class ProjectFlagsDialog(QtGui.QDialog):
+    """
+    ProjectFlagsDialog()
+    
+    Project flags configuration dialog
+    """
+    def __init__(self, project, flags, parent=None):
+        QtGui.QDialog.__init__(self, parent)
+        
+        self.setWindowTitle("Project Flags for %s" % project)
+        
+        self.autoscrollcheckbox = QtGui.QCheckBox("Automatically scroll to the bottom of finished build logs")
+        
+        layout = QtGui.QVBoxLayout()
+        layout.addWidget(self.autoscrollcheckbox)
+        
+        buttonlayout = QtGui.QHBoxLayout()
+        buttonlayout.addStretch(1)
+        ok = QtGui.QPushButton('Ok')
+        self.connect(ok, QtCore.SIGNAL('clicked()'), self.accept)
+        buttonlayout.addWidget(ok)
+        cancel = QtGui.QPushButton('Cancel')
+        self.connect(cancel, QtCore.SIGNAL('clicked()'), self.reject)
+        buttonlayout.addWidget(cancel)
+        
+        layout.addLayout(buttonlayout)
+        
+        self.setLayout(layout)
+
 
 #
 # Result widget
