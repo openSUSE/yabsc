@@ -308,7 +308,7 @@ class BuildService(QtCore.QObject):
             if sr.get('type') != "submit":
                 continue
 
-            d = {'id': sr.get('id')}
+            d = {'id': int(sr.get('id'))}
             sb = sr.findall('submit')[0]
             src = sb.findall('source')[0]
             d['srcproject'] = src.get('project')
@@ -319,6 +319,7 @@ class BuildService(QtCore.QObject):
             d['state'] = sr.findall('state')[0].get('name')
 
             submitrequests.append(d)
+        submitrequests.sort(key='id')
         return submitrequests
     
     def rebuild(self, project, package, target=None, code=None):
