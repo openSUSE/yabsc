@@ -385,8 +385,8 @@ class ProjectTreeView(QtGui.QTreeView):
                 try:
                     if selectedaction == abortaction:
                         self.bs.abortBuild(str(project))
-                    elif selectedaction == editflagsaction:
-                        self.editFlags(project)
+                    # elif selectedaction == editflagsaction:
+                    #     self.editFlags(project)
                     elif selectedaction == watchaction:
                         self.bs.watchProject(project)
                     elif selectedaction == unwatchaction:
