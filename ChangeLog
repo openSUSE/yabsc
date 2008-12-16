@@ -2,6 +2,8 @@
   * Fixed broken project context menu
   * The data refresh interval is now configurable
   * The status bar now displays messages when waiting for API calls
+  * Eliminated delay when switching views
+  * Fix package download to match change in osc
 
 0.9.1 - Dec 01 2008
   * Allow both old and new style apiurls in .oscrc

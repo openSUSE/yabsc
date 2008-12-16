@@ -239,7 +239,7 @@ class BuildService(QtCore.QObject):
         Get binary 'file' for 'project' and 'target' and save it as 'path'
         """
         (repo, arch) = target.split('/')
-        core.get_binary_file(self.apiurl, project, repo, arch, file, targetfilename=path, package=package)
+        core.get_binary_file(self.apiurl, project, repo, arch, file, target_filename=path, package=package)
         
     def getBuildLog(self, project, target, package, offset=0):
         """
