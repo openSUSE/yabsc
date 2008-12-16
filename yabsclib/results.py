@@ -626,7 +626,7 @@ class ResultWidget(QtGui.QWidget):
         
         Enable widget data refresh
         """
-        self.refreshtimer.start(10000)
+        self.refreshtimer.start(self.cfg.getint('general', 'refreshinterval')*1000)
     
     def disableRefresh(self):
         """

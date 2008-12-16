@@ -1,3 +1,7 @@
+0.9.2 - Dec 16 2008
+  * Fixed broken project context menu
+  * The data refresh interval is now configurable
+
 0.9.1 - Dec 01 2008
   * Allow both old and new style apiurls in .oscrc
 

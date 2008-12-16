@@ -29,7 +29,8 @@ import results
 import workers
 import submitrequests
 
-defaultconfig = {'general': {'autoscroll': False},
+defaultconfig = {'general': {'autoscroll': False,
+                             'refreshinterval': '10'},
                  'persistence': {'size': '900,725'}}
 
 class ApiSelection:
@@ -110,11 +111,14 @@ class ConfigureDialog(QtGui.QDialog):
         
         self.setWindowTitle("Yabsc Configuration")
         
+        layout = QtGui.QFormLayout()
+
         self.autoscrollcheckbox = QtGui.QCheckBox("Automatically scroll to the bottom of finished build logs")
+        layout.addRow(self.autoscrollcheckbox)
         
-        layout = QtGui.QVBoxLayout()
-        layout.addWidget(self.autoscrollcheckbox)
-        
+        self.refreshintervaledit = QtGui.QLineEdit()
+        layout.addRow("Data Refresh Interval (seconds)", self.refreshintervaledit)
+
         buttonlayout = QtGui.QHBoxLayout()
         buttonlayout.addStretch(1)
         ok = QtGui.QPushButton('Ok')
@@ -124,7 +128,7 @@ class ConfigureDialog(QtGui.QDialog):
         self.connect(cancel, QtCore.SIGNAL('clicked()'), self.reject)
         buttonlayout.addWidget(cancel)
         
-        layout.addLayout(buttonlayout)
+        layout.addRow(buttonlayout)
         
         self.setLayout(layout)
 
@@ -201,7 +205,7 @@ class MainWindow(QtGui.QMainWindow):
         QtCore.QObject.connect(self.waitstatstimer, QtCore.SIGNAL("timeout()"), self.refreshWaitStats)
         self.waitstatsthread = WaitStatsThread(self.bs)
         QtCore.QObject.connect(self.waitstatsthread, QtCore.SIGNAL("finished()"), self.updateWaitStats)
-        self.waitstatstimer.start(10000)
+        self.waitstatstimer.start(self.cfg.getint('general', 'refreshinterval')*1000)
 
         # Central widgets
         self.maintabwidget = QtGui.QTabWidget()
@@ -283,9 +287,11 @@ class MainWindow(QtGui.QMainWindow):
         """
         dialog = ConfigureDialog(self)
         dialog.autoscrollcheckbox.setCheckState(util.bool2checkState(self.cfg.getboolean('general', 'autoscroll')))
+        dialog.refreshintervaledit.setText(self.cfg.get('general', 'refreshinterval'))
         ret = dialog.exec_()
         if ret:
             self.cfg.set('general', 'autoscroll', str(bool(dialog.autoscrollcheckbox.checkState())))
+            self.cfg.set('general', 'refreshinterval', str(dialog.refreshintervaledit.text()))
     
     def mainTabSelected(self, tabidx):
         """
