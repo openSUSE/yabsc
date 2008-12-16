@@ -127,9 +127,11 @@ class SubmitRequestWidget(QtGui.QWidget):
     
     Build Service Submit Request viewer widget. bs is a BuildService object and cfg is a ConfigParser object
     """
-    def __init__(self, bs, cfg):
+    def __init__(self, parent, bs, cfg):
         QtGui.QWidget.__init__(self)
         self.viewable = False
+        
+        self.parent = parent
         
         # BuildService object
         self.bs = bs
@@ -155,13 +157,16 @@ class SubmitRequestWidget(QtGui.QWidget):
         mainlayout.addWidget(self.srview)
         self.setLayout(mainlayout)
 
-    def enableRefresh(self):
+    def enableRefresh(self, now=False):
         """
         enableRefresh()
         
         Enable widget data refresh
         """
-        self.refreshtimer.start(self.cfg.getint('general', 'refreshinterval')*1000)
+        if now:
+            self.refreshSubmitRequests()
+        else:
+            self.refreshtimer.start(self.cfg.getint('general', 'refreshinterval')*1000)
     
     def disableRefresh(self):
         """
@@ -187,6 +192,7 @@ class SubmitRequestWidget(QtGui.QWidget):
         Refresh the worker lists
         """
         self.disableRefresh()
+        self.parent.statusBar().showMessage("Retrieving submit requests")
         self.bsthread.start()
     
     def updateSubmitRequestList(self):
@@ -195,6 +201,8 @@ class SubmitRequestWidget(QtGui.QWidget):
         
         Update worker lists from result in self.bsthread
         """
+        if self.viewable:
+            self.parent.statusBar().clearMessage()
         submitrequests = self.bsthread.submitrequests
         self.srvmodel.setSubmitRequests(submitrequests)
         for column in range(self.srvmodel.columnCount()):

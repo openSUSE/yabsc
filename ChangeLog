@@ -1,6 +1,7 @@
 0.9.2 - Dec 16 2008
   * Fixed broken project context menu
   * The data refresh interval is now configurable
+  * The status bar now displays messages when waiting for API calls
 
 0.9.1 - Dec 01 2008
   * Allow both old and new style apiurls in .oscrc

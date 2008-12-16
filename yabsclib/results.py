@@ -521,9 +521,11 @@ class ResultWidget(QtGui.QWidget):
     
     Build Service status viewer widget. bs is a BuildService object and cfg is a ConfigParser object
     """
-    def __init__(self, bs, cfg):
+    def __init__(self, parent, bs, cfg):
         QtGui.QWidget.__init__(self)
         self.viewable = False
+        
+        self.parent = parent
         
         # BuildService object
         self.bs = bs
@@ -620,13 +622,16 @@ class ResultWidget(QtGui.QWidget):
         mainlayout.addLayout(packagelistlayout, 1)
         self.setLayout(mainlayout)
     
-    def enableRefresh(self):
+    def enableRefresh(self, now=False):
         """
         enableRefresh()
         
         Enable widget data refresh
         """
-        self.refreshtimer.start(self.cfg.getint('general', 'refreshinterval')*1000)
+        if now:
+            self.refreshPackageLists(self.currentproject)
+        else:
+            self.refreshtimer.start(self.cfg.getint('general', 'refreshinterval')*1000)
     
     def disableRefresh(self):
         """
@@ -659,6 +664,7 @@ class ResultWidget(QtGui.QWidget):
             self.projectlistthread.watched = True
         else:
             self.projectlistthread.watched = False
+        self.parent.statusBar().showMessage("Retrieving project list")
         self.projectlistthread.start()
     
     def updateProjectList(self):
@@ -667,6 +673,8 @@ class ResultWidget(QtGui.QWidget):
         
         Update project list from result in self.projectlistthread
         """
+        if self.viewable:
+            self.parent.statusBar().clearMessage()
         self.projectlistmodel.clear()
         for project in sorted(self.projectlistthread.projects):
             si = QtGui.QStandardItem(project)
@@ -693,6 +701,7 @@ class ResultWidget(QtGui.QWidget):
         """
         self.disableRefresh()
         self.projectresultsthread.project = project
+        self.parent.statusBar().showMessage("Retrieving package results for %s" % project)
         self.projectresultsthread.start()
 
     def updatePackageList(self):
@@ -701,6 +710,8 @@ class ResultWidget(QtGui.QWidget):
         
         Update package list data from result in self.projectresultsthread
         """
+        if self.viewable:
+            self.parent.statusBar().clearMessage()
         results = self.projectresultsthread.results
         targets = self.projectresultsthread.targets
         self.resultmodel.setResults(results, targets)
@@ -751,6 +762,7 @@ class ResultWidget(QtGui.QWidget):
                 return
         self.packagestatusthread.project = self.currentproject
         self.packagestatusthread.package = package
+        self.parent.statusBar().showMessage("Getting package status for %s" % package)
         self.packagestatusthread.start()
         
     def updatePackageInfo(self):
@@ -759,6 +771,8 @@ class ResultWidget(QtGui.QWidget):
         
         Update the pkginfo pane to the result from self.packagestatusthread
         """
+        if self.viewable:
+            self.parent.statusBar().clearMessage()
         package = self.packagestatusthread.package
         pitext = "<h2>%s</h2>" % package
         pitext += "<table width='90%'>"
@@ -907,6 +921,7 @@ class ResultWidget(QtGui.QWidget):
             self.buildlogthread.live = True
         else:
             self.buildlogthread.live = False
+        self.parent.statusBar().showMessage("Retrieving build log for %s" % package)
         self.requestBuildOutput()
     
     def requestBuildOutput(self):
@@ -923,6 +938,8 @@ class ResultWidget(QtGui.QWidget):
         
         Update the build output
         """
+        if self.viewable:
+            self.parent.statusBar().clearMessage()
         self.streamtimer.stop()
         if self.buildlogthread.live:
             log_chunk = self.buildlogthread.log_chunk

@@ -209,11 +209,11 @@ class MainWindow(QtGui.QMainWindow):
 
         # Central widgets
         self.maintabwidget = QtGui.QTabWidget()
-        self.rw = results.ResultWidget(self.bs, self.cfg)
+        self.rw = results.ResultWidget(self, self.bs, self.cfg)
         self.maintabwidget.addTab(self.rw, "Projects")
-        self.ww = workers.WorkerWidget(self.bs, self.cfg)
+        self.ww = workers.WorkerWidget(self, self.bs, self.cfg)
         self.maintabwidget.addTab(self.ww, "Workers")
-        self.srw = submitrequests.SubmitRequestWidget(self.bs, self.cfg)
+        self.srw = submitrequests.SubmitRequestWidget(self, self.bs, self.cfg)
         self.maintabwidget.addTab(self.srw, "Submit Requests")
         self.setCentralWidget(self.maintabwidget)
         self.connect(self.maintabwidget, QtCore.SIGNAL('currentChanged(int)'), self.mainTabSelected)
@@ -299,10 +299,11 @@ class MainWindow(QtGui.QMainWindow):
         
         Enable refresh for new main tab and disable for others
         """
+        self.statusBar().clearMessage()
         for (idx, widget) in enumerate((self.rw, self.ww, self.srw)):
             if idx == tabidx:
                 widget.viewable = True
-                widget.enableRefresh()
+                widget.enableRefresh(now=True)
             else:
                 widget.viewable = False
                 widget.disableRefresh()

@@ -268,10 +268,12 @@ class WorkerWidget(QtGui.QWidget):
     
     Build Service worker viewer widget. bs is a BuildService object and cfg is a ConfigParser object
     """
-    def __init__(self, bs, cfg):
+    def __init__(self, parent, bs, cfg):
         QtGui.QWidget.__init__(self)
         self.viewable = False
         
+        self.parent = parent
+
         # BuildService object
         self.bs = bs
         
@@ -336,13 +338,16 @@ class WorkerWidget(QtGui.QWidget):
         mainlayout.addWidget(self.logpane)
         self.setLayout(mainlayout)
 
-    def enableRefresh(self):
+    def enableRefresh(self, now=False):
         """
         enableRefresh()
         
         Enable widget data refresh
         """
-        self.refreshtimer.start(self.cfg.getint('general', 'refreshinterval')*1000)
+        if now:
+            self.refreshWorkerList()
+        else:
+            self.refreshtimer.start(self.cfg.getint('general', 'refreshinterval')*1000)
     
     def disableRefresh(self):
         """
@@ -368,6 +373,7 @@ class WorkerWidget(QtGui.QWidget):
         Refresh the worker lists
         """
         self.disableRefresh()
+        self.parent.statusBar().showMessage("Retrieving worker status")
         self.workerstatusthread.start()
     
     def updateWorkerList(self):
@@ -376,6 +382,8 @@ class WorkerWidget(QtGui.QWidget):
         
         Update worker lists from result in self.workerstatusthread
         """
+        if self.viewable:
+            self.parent.statusBar().clearMessage()
         workers = self.workerstatusthread.workers
         self.workermodel.setWorkers(workers)
         
@@ -462,6 +470,8 @@ class WorkerWidget(QtGui.QWidget):
         
         Update the build output
         """
+        if self.viewable:
+            self.parent.statusBar().clearMessage()
         self.streamtimer.stop()
         log_chunk = self.buildlogthread.log_chunk
         self.buildlogthread.offset += len(log_chunk)
@@ -496,4 +506,5 @@ class WorkerWidget(QtGui.QWidget):
             self.buildlogthread.offset = 0
             self.buildlogthread.live = True
 
+            self.parent.statusBar().showMessage("Retrieving build log for %s" % package)
             self.requestBuildOutput()
