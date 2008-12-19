@@ -19,25 +19,30 @@
 from PyQt4 import QtGui, QtCore
 from osc import conf, core
 
-class AllSubmitModel(QtCore.QAbstractItemModel):
-    """AllSubmitModel()
+class SubmitRequestModel(QtCore.QAbstractItemModel):
+    """SubmitRequestModel(bs)
     
-    Model for submit requests
+    Model for submit requests. 'bs' must be a BuildService object
     """
-    def __init__(self, parent):
+    def __init__(self, bs):
         QtCore.QAbstractItemModel.__init__(self)
-        self.workers = []
-        self.srs = []
+        self.bs = bs
+        self.submitrequests = []
+        self.visiblesubmitrequests = []
+        self.statefilter = ""
+        self.packagefilter = ""
+        self.srcprojectfilter = ""
+        self.dstprojectfilter = ""
         self.columnmap = ('id', 'state', 'srcproject', 'srcpackage', 'dstproject', 'dstpackage', 'comment')
     
-    def setSubmitRequests(self, srs):
+    def setSubmitRequests(self, submitrequests):
         """
-        setWorkers(workers)
+        setSubmitRequests(workers)
         
-        Set the workers list of the model, as returned from BuildService.getWorkerStatus()
+        Set the submitrequests list of the model, as returned from BuildService.getSubmitRequests()
         """
-        self.srs = srs
-        self.reset()
+        self.submitrequests = submitrequests
+        self.updateVisibleSubmitrequests()
     
     def _data(self, row, column):
         """
@@ -46,7 +51,7 @@ class AllSubmitModel(QtCore.QAbstractItemModel):
         Internal method for getting model data
         """
         try:
-            return self.srs[row][self.columnmap[column]]
+            return self.visiblesubmitrequests[row][self.columnmap[column]]
         except KeyError:
             return ""
 
@@ -97,7 +102,7 @@ class AllSubmitModel(QtCore.QAbstractItemModel):
         
         Returns the number of rows of data currently in the model
         """
-        return len(self.srs)
+        return len(self.visiblesubmitrequests)
         
     def columnCount(self, parent=None):
         """
@@ -106,6 +111,92 @@ class AllSubmitModel(QtCore.QAbstractItemModel):
         Returns the number of columns of data currently in the model
         """
         return len(self.columnmap)
+
+    def updateVisibleSubmitrequests(self, reset=True):
+        """
+        updateVisibleSubmitrequests(reset=True)
+        
+        Update the list of visible submitrequests
+        """
+        self.visiblesubmitrequests = self.submitrequests
+        
+        if self.statefilter:
+            self.visiblesubmitrequests = [s for s in self.visiblesubmitrequests if s['state'] == self.statefilter]
+        
+        if self.packagefilter:
+            self.visiblesubmitrequests = [s for s in self.visiblesubmitrequests if (self.packagefilter in s['srcpackage'] or self.packagefilter in s['dstpackage'])]
+        
+        if 'Watched' in (self.srcprojectfilter, self.dstprojectfilter):
+            watchedprojects = self.bs.getWatchedProjectList()
+
+        for (filter, key) in ((self.srcprojectfilter, 'srcproject'), (self.dstprojectfilter, 'dstproject')):
+            if filter:
+                if filter == 'Watched':
+                    self.visiblesubmitrequests = [s for s in self.visiblesubmitrequests if s[key] in watchedprojects]
+                else:
+                    self.visiblesubmitrequests = [s for s in self.visiblesubmitrequests if s[key] == filter]
+
+        if reset:
+            self.reset()
+
+    def setStateFilter(self, state="", reset=True):
+        """
+        setStateFilter(state, reset=True)
+        
+        Only show submitrequests with a specific state. If status is undefined
+        or empty, filter is disabled
+        """
+        state = state.lower()
+        self.statefilter = state
+        self.updateVisibleSubmitrequests()
+        
+    def setPackageFilter(self, filterstring):
+        """
+        setPackageFilter(filterstring)
+        
+        Filter submitrequests for packages containing 'filterstring'
+        """
+        self.packagefilter = filterstring
+        self.updateVisibleSubmitrequests()
+        
+    def setSourceProjectFilter(self, project):
+        """
+        setSourceProjectFilter(project)
+        
+        Filter submitrequests for mathing source projects. If 'project' is
+        'All', all projects are shown. If 'project' is 'Watched', all watched
+        projects are shown
+        """
+        if project == 'All':
+            self.srcprojectfilter = ""
+        else:
+            self.srcprojectfilter = project
+        self.updateVisibleSubmitrequests()
+
+    def setDestinationProjectFilter(self, project):
+        """
+        setDestinationProjectFilter(project)
+        
+        Filter submitrequests for mathing destination projects. If 'project' is
+        'All', all projects are shown. If 'project' is 'Watched', all watched
+        projects are shown
+        """
+        if project == 'All':
+            self.dstprojectfilter = ""
+        else:
+            self.dstprojectfilter = project
+        self.updateVisibleSubmitrequests()
+
+    def numRequestsWithState(self, state):
+        """
+        numRequestsWithState(state)
+        
+        Return the number of submitreqs with state
+        """
+        state = state.lower()
+        if state == 'all':
+            return len(self.submitrequests)
+        return len([s for s in self.submitrequests if s['state'] == state])
 
 class SubmitRequestThread(QtCore.QThread):
     """
@@ -139,21 +230,56 @@ class SubmitRequestWidget(QtGui.QWidget):
         # Config object
         self.cfg = cfg
 
-        # 
-        
+        # Filter widgets
+        searchlabel = QtGui.QLabel("Search")
+        self.searchedit = QtGui.QLineEdit()
+        QtCore.QObject.connect(self.searchedit, QtCore.SIGNAL("textChanged(const QString&)"), self.filterPackages)
+        srcprojectlabel = QtGui.QLabel("Source Project")
+        self.srcprojectselector = QtGui.QComboBox()
+        self.srcprojectselector.setSizeAdjustPolicy(QtGui.QComboBox.AdjustToContents)
+        self.srcprojectselector.addItem("All")
+        self.srcprojectselector.addItem("Watched")
+        QtCore.QObject.connect(self.srcprojectselector, QtCore.SIGNAL("currentIndexChanged(const QString&)"), self.filterSourceProjects)
+        dstprojectlabel = QtGui.QLabel("Destination Project")
+        self.dstprojectselector = QtGui.QComboBox()
+        self.dstprojectselector.setSizeAdjustPolicy(QtGui.QComboBox.AdjustToContents)
+        self.dstprojectselector.addItem("All")
+        self.dstprojectselector.addItem("Watched")
+        QtCore.QObject.connect(self.dstprojectselector, QtCore.SIGNAL("currentIndexChanged(const QString&)"), self.filterDestinationProjects)
+
+        # State tabs
+        self.statetab = QtGui.QTabBar()
+        QtCore.QObject.connect(self.statetab, QtCore.SIGNAL("currentChanged(int)"), self.filterState)
+
+        self.tabs = []
+        for tabname in ('All', 'New', 'Rejected', 'Accepted', 'Declined', 'Revoked', 'Deleted'):
+            self.statetab.addTab(tabname)
+            self.tabs.append(tabname)
+
+        # Main view
         self.srview = QtGui.QTreeView(self)
         self.srview.setRootIsDecorated(False)
-        self.srvmodel = AllSubmitModel(self)
+        self.srvmodel = SubmitRequestModel(self.bs)
         self.srview.setModel(self.srvmodel)
 
-        # Worker refresh
+        # Data refresh
         self.refreshtimer = QtCore.QTimer()
         QtCore.QObject.connect(self.refreshtimer, QtCore.SIGNAL("timeout()"), self.refreshSubmitRequests)
         self.bsthread = SubmitRequestThread(self.bs)
         QtCore.QObject.connect(self.bsthread, QtCore.SIGNAL("finished()"), self.updateSubmitRequestList)
 
         # Layout
+        filterlayout = QtGui.QHBoxLayout()
+        filterlayout.addWidget(searchlabel)
+        filterlayout.addWidget(self.searchedit)
+        filterlayout.addWidget(srcprojectlabel)
+        filterlayout.addWidget(self.srcprojectselector)
+        filterlayout.addWidget(dstprojectlabel)
+        filterlayout.addWidget(self.dstprojectselector)
+
         mainlayout = QtGui.QVBoxLayout()
+        mainlayout.addLayout(filterlayout)
+        mainlayout.addWidget(self.statetab)
         mainlayout.addWidget(self.srview)
         self.setLayout(mainlayout)
 
@@ -205,8 +331,84 @@ class SubmitRequestWidget(QtGui.QWidget):
             self.parent.statusBar().clearMessage()
         submitrequests = self.bsthread.submitrequests
         self.srvmodel.setSubmitRequests(submitrequests)
-        for column in range(self.srvmodel.columnCount()):
-           self.srview.resizeColumnToContents(column)
+
+        # Update project filter dropboxes
+        srcprojects = {}
+        dstprojects = {}
+        for submitrequest in submitrequests:
+            srcprojects[submitrequest['srcproject']] = None
+            dstprojects[submitrequest['dstproject']] = None
+        
+        for (selector, projects) in ((self.srcprojectselector, srcprojects), (self.dstprojectselector, dstprojects)):
+            currentfilter = str(selector.currentText())
+            selector.clear()
+            selector.addItem("All")
+            selector.addItem("Watched")
+            selector.addItems(sorted(projects.keys()))
+            if currentfilter in projects.keys() or currentfilter == 'Watched':
+                selector.setCurrentIndex(selector.findText(currentfilter))
+
+        self.resizeColumns()
+        self.updateStateCounts()
         if self.viewable:
             self.enableRefresh()
 
+    def resizeColumns(self):
+        """
+        resizeColumns()
+        
+        Resize columns to fit contents
+        """
+        for column in range(self.srvmodel.columnCount()):
+           self.srview.resizeColumnToContents(column)        
+
+    def updateStateCounts(self):
+        """
+        updateStateCounts()
+        
+        Update counts for state tabs
+        """
+        for tab in self.tabs:
+            self.statetab.setTabText(self.tabs.index(tab), "%s (%d)" % (tab, self.srvmodel.numRequestsWithState(tab)))
+
+    def filterState(self, index):
+        """
+        filterState(index)
+        
+        Filter submitreqs by state, specified by tab index
+        """
+        if self.tabs:
+            if index == 0:
+                self.srvmodel.setStateFilter()
+            else:
+                self.srvmodel.setStateFilter(self.tabs[index].lower())
+            self.resizeColumns()
+            self.updateStateCounts()
+
+    def filterPackages(self, filterstring):
+        """
+        filterPackages(filterstring)
+        
+        Filter submitrequests for packages matching 'filterstring'
+        """
+        self.srvmodel.setPackageFilter(str(filterstring))
+    
+    def filterSourceProjects(self, project):
+        """
+        filterSourceProjects(project)
+        
+        Filter submitreqs for 'project'. If 'project' is 'All', all projects
+        are shown. If 'project' is 'Watched', all watched projects are
+        shown
+        """
+        self.srvmodel.setSourceProjectFilter(str(project))
+
+    def filterDestinationProjects(self, project):
+        """
+        filterDestinationProjects(project)
+        
+        Filter submitreqs for 'project'. If 'project' is 'All', all projects
+        are shown. If 'project' is 'Watched', all watched projects are
+        shown
+        """
+        self.srvmodel.setDestinationProjectFilter(str(project))
