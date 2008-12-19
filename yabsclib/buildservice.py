@@ -144,6 +144,8 @@ class BuildService(QtCore.QObject):
 
         person = ElementTree.fromstring(''.join(data))
         watchlist = person.find('watchlist')
+        if not watchlist:
+            watchlist = ElementTree.SubElement(person, 'watchlist')
         ElementTree.SubElement(watchlist, 'project', name=str(project))
         
         f = metafile(url, ElementTree.tostring(person))
