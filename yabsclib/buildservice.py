@@ -321,7 +321,7 @@ class BuildService(QtCore.QObject):
             d['state'] = sr.findall('state')[0].get('name')
 
             submitrequests.append(d)
-        submitrequests.sort(key='id')
+        submitrequests.sort(key=lambda x: x['id'])
         return submitrequests
     
     def rebuild(self, project, package, target=None, code=None):
