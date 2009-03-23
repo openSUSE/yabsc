@@ -19,6 +19,7 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 import time
+import email.utils
 from PyQt4 import QtGui, QtCore
 
 from results import BuildLogThread
@@ -76,7 +77,7 @@ class WorkerModel(QtCore.QAbstractItemModel):
             if 'started' in worker:
                 # Use the colour scheme from the webclient
                 deadline = time.time() - 3600
-                starttime = time.mktime(time.strptime(worker['started'], '%a %b %d %H:%M:%S %Y'))
+                starttime = time.mktime(email.utils.parsedate(worker['started']))
                 if starttime < deadline:
                     n = (abs((starttime - deadline))/60)
                     if n < 240:

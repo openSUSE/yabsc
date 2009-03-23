@@ -4,13 +4,13 @@ from distutils.core import setup
 long_description = "An openSUSE Build Service client that focuses on package build results"
 
 setup(name             = "yabsc",
-      version	       = "0.9.3",
+      version          = "0.9.4",
       description      = "Yet Another Build Service Client",
       long_description = long_description,
       author           = "James Oakley",
       author_email     = "jfunk@opensuse.org",
       url              = "http://www.funktronics.ca/yabsc",
-      license	       = "GPL",
+      license          = "GPL",
       scripts          = ['yabsc'],
       packages         = ['yabsclib'],
      )
